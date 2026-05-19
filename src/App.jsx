@@ -401,7 +401,7 @@ export default function App() {
 
       {/* HEADER */}
       <div style={S.header}>
-        <div style={S.appName}>🛒 PanierMalin</div>
+        <div style={S.appName}>🛒 SmartSal</div>
         <div style={S.appSub}>Compare et optimise tes courses en Israël</div>
         <div style={S.disclaimer}>
           ⚠️ Prix indicatifs 2026 — non contractuels
@@ -953,7 +953,7 @@ export default function App() {
             <div style={{background:"#2D5016",padding:"48px 20px 16px",color:"#fff"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                 <div>
-                  <div style={{fontFamily:"'Syne',sans-serif",fontSize:22,fontWeight:800,color:"#fff"}}>🛒 PanierMalin</div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontSize:22,fontWeight:800,color:"#fff"}}>🛒 SmartSal</div>
                   <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:2}}>Liste partagée · {totalItems} article{totalItems>1?"s":""}</div>
                 </div>
                 <div style={{background:"rgba(255,255,255,0.15)",borderRadius:12,padding:"6px 12px",fontSize:14,fontWeight:700,color:"#fff"}}>
