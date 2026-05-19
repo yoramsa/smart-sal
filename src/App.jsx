@@ -200,6 +200,41 @@ const PRODUCTS = [
   { id:168,name:"Lessive 5kg",       cat:"🧹 Nettoyage",          emoji:"🧺", prices:{ "Rami Levi":64.9, "Osher Ad":49.9, "Shufersal":74.9, "Yohananof":68.9 }, unit:"5kg" },
 ];
 
+// Poids moyen par unité (kg) — utilisé pour estimer le prix quand
+// l'utilisateur écrit "4 courgettes" au lieu de "1 kg courgettes"
+const AVG_WEIGHT = {
+  1: 0.12,   // Tomates
+  2: 0.20,   // Concombres
+  3: 0.18,   // Poivrons
+  4: 0.10,   // Carottes
+  5: 0.15,   // Oignons
+  6: 0.20,   // Pommes de terre
+  8: 0.25,   // Courgettes
+  9: 0.30,   // Aubergines
+  10: 0.12,  // Bananes
+  11: 0.18,  // Pommes
+  12: 0.10,  // Citrons
+  13: 0.20,  // Avocats
+  16: 3.5,   // Pastèque entière
+  40: 1.5,   // Poulet entier
+};
+
+function displayCount(item) {
+  const avg = AVG_WEIGHT[item.product.id];
+  if (!avg) return null;
+  return Math.max(1, Math.round((item.qty || 0) / avg));
+}
+function displayLabel(item) {
+  const avg = AVG_WEIGHT[item.product.id];
+  if (avg) {
+    const count = displayCount(item);
+    const totalKg = count * avg;
+    const weightStr = totalKg < 1 ? `${Math.round(totalKg*1000)} g` : `${totalKg.toFixed(1)} kg`;
+    return `${count} unité${count>1?"s":""} (≈ ${weightStr})`;
+  }
+  return null;
+}
+
 function normalize(s) {
   return (s||"").replace(/Œ/g,"Oe").replace(/œ/g,"oe").toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -207,6 +242,124 @@ function normalize(s) {
 
 function cheapestChain(product) {
   return Object.entries(product.prices).sort((a,b)=>a[1]-b[1])[0][0];
+}
+
+// Similarité bigrammes (Dice coefficient) — utilisée pour proposer des suggestions
+function _bigrams(s) {
+  const out = new Set();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.substr(i, 2));
+  return out;
+}
+function _similarity(a, b) {
+  const A = _bigrams(a), B = _bigrams(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const bg of A) if (B.has(bg)) inter++;
+  let score = (2 * inter) / (A.size + B.size);
+  // bonus si début identique (3 lettres)
+  if (a.length >= 3 && b.length >= 3 && a.slice(0,3) === b.slice(0,3)) score += 0.15;
+  return score;
+}
+function suggestProducts(searchText, max = 3) {
+  const q = normalize(searchText);
+  if (!q) return [];
+  return PRODUCTS
+    .map(p => ({ p, score: _similarity(q, normalize(p.name)) }))
+    .filter(x => x.score > 0.15)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map(x => x.p);
+}
+
+// Parse une liste collée en masse, ex:
+//   2 kg tomates
+//   1 pain
+//   6 oeufs
+//   500g feta
+function parseBulkList(text) {
+  const KNOWN_UNITS = /^(kg|kgs?|g|gr|gramme|grammes|l|litre|litres|ml|cl|unite|unites|unité|unités|paquet|paquets|boite|boites|boîte|boîtes|piece|pieces|pièce|pièces|x|tete|tetes|tête|têtes|botte|bottes)$/i;
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const matched = [];
+  const notFound = [];
+  const stripS = (s) => s.replace(/(s|x)$/i, "");
+
+  lines.forEach(rawLine => {
+    let qty = 1;
+    let unitGiven = false;
+    let rest = rawLine;
+    // 1) extraction quantité en début de ligne (ex: "2 kg tomates", "1.5 l lait", "500g feta")
+    // a) cas "500g" ou "1.5kg" — chiffre collé à l'unité
+    const stuckUnit = rest.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|ml|cl)\b\s*(.*)$/i);
+    if (stuckUnit) {
+      qty = parseFloat(stuckUnit[1].replace(",", ".")) || 1;
+      unitGiven = true;
+      rest = stuckUnit[3] || "";
+      // conversion sommaire : g/gr → kg, ml/cl → l
+      const u = stuckUnit[2].toLowerCase();
+      if (u === "g" || u === "gr") qty = qty / 1000;
+      if (u === "ml") qty = qty / 1000;
+      if (u === "cl") qty = qty / 100;
+    } else {
+      // b) cas "2 kg tomates" ou "2 tomates" (sans unité)
+      const m = rest.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
+      if (m) {
+        qty = parseFloat(m[1].replace(",", ".")) || 1;
+        rest = m[2];
+        const tokens = rest.split(/\s+/);
+        if (tokens[0] && KNOWN_UNITS.test(normalize(tokens[0]).replace(/[0-9]/g,""))) {
+          unitGiven = true;
+          tokens.shift();
+          rest = tokens.join(" ");
+        }
+      }
+    }
+    qty = Math.max(0.01, qty);
+    const search = normalize(rest);
+    if (!search) { notFound.push({ text: rawLine }); return; }
+
+    let best = null;
+    // a) match exact (avec/sans 's' final)
+    for (const p of PRODUCTS) {
+      const pname = normalize(p.name);
+      if (pname === search || stripS(pname) === stripS(search)) { best = p; break; }
+    }
+    // b) substring (search inclus dans nom OU nom inclus dans search)
+    if (!best) {
+      for (const p of PRODUCTS) {
+        const pname = normalize(p.name);
+        if (pname.length >= 3 && (pname.includes(search) || search.includes(pname))) { best = p; break; }
+      }
+    }
+    // c) tous les tokens du search apparaissent dans le nom produit
+    if (!best) {
+      const tokens = search.split(/\s+/).filter(t => t.length >= 3);
+      if (tokens.length > 0) {
+        for (const p of PRODUCTS) {
+          const pname = normalize(p.name);
+          if (tokens.every(t => pname.includes(t))) { best = p; break; }
+        }
+      }
+    }
+
+    if (best) {
+      // Conversion : si l'utilisateur n'a pas donné d'unité ET que le produit
+      // est tarifé au kg, on suppose qu'il parle en "unités" (ex: 4 courgettes)
+      const avg = AVG_WEIGHT[best.id];
+      let finalQty = qty;
+      if (avg && !unitGiven) {
+        finalQty = +(qty * avg).toFixed(3);
+      } else if (!avg && !Number.isInteger(qty)) {
+        // produit sans avgWeight et qty décimale (rare) → on garde tel quel
+      } else if (!avg) {
+        finalQty = Math.max(1, Math.round(qty));
+      }
+      matched.push({ product: best, qty: finalQty });
+    } else {
+      notFound.push({ text: rawLine, qty, suggestions: suggestProducts(rest, 3) });
+    }
+  });
+
+  return { matched, notFound };
 }
 
 function optimizeBasket(basket) {
@@ -247,6 +400,11 @@ export default function App() {
   const [tempChain, setTempChain] = useState(null);
   const [sharedMode, setSharedMode] = useState(false);
   const [checked, setChecked] = useState(new Set());
+  const [bulkInput, setBulkInput] = useState("");
+  const [bulkNotFound, setBulkNotFound] = useState([]);
+  const [bulkAddedCount, setBulkAddedCount] = useState(0);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [sharedSearch, setSharedSearch] = useState("");
 
   const cats = ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
 
@@ -282,17 +440,20 @@ export default function App() {
 
   const confirmAdd = () => {
     if (!showQty) return;
-    const qty = parseInt(tempQty)||1;
+    const userCount = parseInt(tempQty)||1;
     const chosenChain = tempChain || cheapestChain(showQty);
     // For ownBrand virtual products, use the real product from brandByChain
     let productToAdd = showQty;
     if (showQty.isOwnBrand && showQty.brandByChain && showQty.brandByChain[chosenChain]) {
       productToAdd = showQty.brandByChain[chosenChain];
     }
+    // Si le produit est tarifé au kg et a un poids moyen, on convertit le nombre d'unités en kg
+    const avg = AVG_WEIGHT[productToAdd.id];
+    const finalQty = avg ? +(userCount * avg).toFixed(3) : userCount;
     setBasket(prev => {
       const existing = prev.find(i=>i.product.id===productToAdd.id);
-      if (existing) return prev.map(i=>i.product.id===productToAdd.id?{...i,qty:i.qty+qty,chosenChain}:i);
-      return [...prev, { product:productToAdd, qty, chosenChain }];
+      if (existing) return prev.map(i=>i.product.id===productToAdd.id?{...i,qty:+(i.qty+finalQty).toFixed(3),chosenChain}:i);
+      return [...prev, { product:productToAdd, qty:finalQty, chosenChain }];
     });
     setShowQty(null);
   };
@@ -304,14 +465,79 @@ export default function App() {
   const [pendingRemove, setPendingRemove] = useState(null);
   const removeFromBasket = (id) => { setBasket(prev=>prev.filter(i=>i.product.id!==id)); setPendingRemove(null); };
 
+  const changeQty = (id, delta) => {
+    setBasket(prev => prev.map(i => {
+      if (i.product.id !== id) return i;
+      const avg = AVG_WEIGHT[i.product.id];
+      const step = avg || 1;
+      const next = Math.max(step, +((i.qty || step) + delta * step).toFixed(3));
+      return { ...i, qty: next };
+    }));
+  };
+
+  const importBulkList = () => {
+    const { matched, notFound } = parseBulkList(bulkInput);
+    setBulkNotFound(notFound);
+    setBulkAddedCount(matched.length);
+    if (matched.length > 0) {
+      setBasket(prev => {
+        const next = [...prev];
+        matched.forEach(({ product, qty }) => {
+          const idx = next.findIndex(i => i.product.id === product.id);
+          if (idx >= 0) {
+            next[idx] = { ...next[idx], qty: next[idx].qty + qty };
+          } else {
+            next.push({ product, qty, chosenChain: cheapestChain(product) });
+          }
+        });
+        return next;
+      });
+    }
+    // On vide le textarea pour éviter un double-import accidentel
+    setBulkInput("");
+    // Si tout est trouvé, on ferme le modal et va sur Optimiser
+    if (notFound.length === 0 && matched.length > 0) {
+      setShowBulkModal(false);
+      setTab("result");
+    }
+    // Sinon, on laisse le modal ouvert pour gérer les suggestions
+  };
+
+  const addSuggestion = (product, qty, originalText) => {
+    setBasket(prev => {
+      const idx = prev.findIndex(i => i.product.id === product.id);
+      if (idx >= 0) return prev.map((i,k) => k===idx ? {...i, qty: i.qty + qty} : i);
+      return [...prev, { product, qty, chosenChain: cheapestChain(product) }];
+    });
+    setBulkAddedCount(c => c + 1);
+    setBulkNotFound(prev => prev.filter(nf => nf.text !== originalText));
+  };
+
+  const finishBulkImport = () => {
+    setShowBulkModal(false);
+    if (basket.length > 0 || bulkAddedCount > 0) setTab("result");
+  };
+
+  // Ajout direct d'un produit (utilisé dans la liste partagée)
+  const addProductDirect = (product, userCount = 1) => {
+    const avg = AVG_WEIGHT[product.id];
+    const qty = avg ? +(userCount * avg).toFixed(3) : userCount;
+    setBasket(prev => {
+      const idx = prev.findIndex(i => i.product.id === product.id);
+      if (idx >= 0) return prev.map((i,k) => k===idx ? {...i, qty: +(i.qty + qty).toFixed(3)} : i);
+      return [...prev, { product, qty, chosenChain: cheapestChain(product) }];
+    });
+  };
+
   const result = useMemo(() => basket.length > 0 ? optimizeBasket(basket) : null, [basket]);
 
   return (
-    <div style={S.root}>
+    <div style={S.root} className="app-root">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
-        ::-webkit-scrollbar{width:0;}
+        @media (max-width:699px){::-webkit-scrollbar{width:0;}}
+        @media (min-width:700px){::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-thumb{background:#C8B89C;border-radius:5px;}::-webkit-scrollbar-track{background:transparent;}}
         .prod-card:active{transform:scale(0.97);}
         .prod-card{transition:all 0.15s;}
         .tab-btn{transition:all 0.2s;cursor:pointer;}
@@ -323,7 +549,105 @@ export default function App() {
         @keyframes si{from{opacity:0;transform:translateY(50px)}to{opacity:1;transform:translateY(0)}}
         .saving-badge{animation:pop 0.5s cubic-bezier(.34,1.56,.64,1);}
         @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+        /* Mobile first: max 430px width */
+        .app-root{max-width:430px;}
+        .product-grid{grid-template-columns:1fr 1fr !important;}
+        /* Tablette */
+        @media (min-width:700px){
+          .app-root{max-width:760px;}
+          .product-grid{grid-template-columns:repeat(3,1fr) !important;}
+        }
+        /* Desktop */
+        @media (min-width:1024px){
+          .app-root{max-width:1100px;}
+          .product-grid{grid-template-columns:repeat(4,1fr) !important;gap:14px;}
+          .tab-content{padding-left:32px;padding-right:32px;}
+          .header-desktop{padding:48px 32px 20px;}
+        }
+        @media (min-width:1400px){
+          .app-root{max-width:1280px;}
+        }
+        /* Page liste partagée — responsive */
+        .shared-page > *{max-width:430px;margin-left:auto;margin-right:auto;}
+        @media (min-width:700px){
+          .shared-page > *{max-width:680px;}
+        }
+        @media (min-width:1024px){
+          .shared-page > *{max-width:900px;}
+        }
+        @media (min-width:1400px){
+          .shared-page > *{max-width:1100px;}
+        }
       `}</style>
+
+      {/* BULK IMPORT MODAL */}
+      {showBulkModal && (
+        <div className="overlay" style={S.overlay} onClick={()=>setShowBulkModal(false)}>
+          <div className="slide-in" style={{...S.modal,maxWidth:560}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:"#2D5016"}}>📋 Importer une liste</div>
+              <button onClick={()=>setShowBulkModal(false)} style={{background:"none",border:"none",fontSize:24,color:"#999",cursor:"pointer",padding:0,lineHeight:1}}>×</button>
+            </div>
+            <div style={{fontSize:13,color:"#666",lineHeight:1.5,marginBottom:14}}>
+              Colle ta liste de courses ci-dessous. Un produit par ligne, avec la quantité au début.
+            </div>
+            <textarea
+              placeholder={"2 kg tomates\n1 pain\n6 oeufs\n500 g feta\n1 litre lait\n3 yaourts"}
+              value={bulkInput}
+              onChange={e=>setBulkInput(e.target.value)}
+              style={{width:"100%",minHeight:180,padding:"14px",borderRadius:14,border:"1.5px solid #EEE8DE",fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF8",outline:"none",color:"#222",resize:"vertical",lineHeight:1.7}}
+            />
+            <button
+              onClick={importBulkList}
+              disabled={!bulkInput.trim()}
+              style={{...S.addBtn,marginTop:12,opacity:bulkInput.trim()?1:0.5,cursor:bulkInput.trim()?"pointer":"default"}}>
+              ✨ Importer & optimiser
+            </button>
+            {bulkAddedCount > 0 && (
+              <div style={{background:"#E8F5E9",border:"1.5px solid #A8D878",borderRadius:12,padding:"12px 14px",marginTop:14,fontSize:13,color:"#2D5016",fontWeight:600}}>
+                ✅ {bulkAddedCount} produit{bulkAddedCount>1?"s":""} ajouté{bulkAddedCount>1?"s":""} au panier
+              </div>
+            )}
+            {bulkNotFound.length > 0 && (
+              <div style={{marginTop:14}}>
+                <div style={{fontWeight:700,color:"#B27A00",marginBottom:10,fontSize:13}}>
+                  ⚠️ {bulkNotFound.length} produit{bulkNotFound.length>1?"s":""} non trouvé{bulkNotFound.length>1?"s":""}
+                </div>
+                {bulkNotFound.map((nf,i)=>(
+                  <div key={i} style={{background:"#FFF8E1",border:"1.5px solid #FFD54F",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                    <div style={{fontSize:14,color:"#555",fontWeight:600,marginBottom:8}}>« {nf.text} »</div>
+                    {nf.suggestions && nf.suggestions.length > 0 ? (
+                      <>
+                        <div style={{fontSize:11,color:"#888",marginBottom:6}}>💡 Tu cherchais peut-être :</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                          {nf.suggestions.map(sg => (
+                            <button
+                              key={sg.id}
+                              onClick={()=>addSuggestion(sg, nf.qty || 1, nf.text)}
+                              style={{background:"#fff",border:"1.5px solid #2D5016",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#2D5016",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>
+                              <span>{sg.emoji}</span>
+                              <span>+ {sg.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{fontSize:11,color:"#888",fontStyle:"italic"}}>Aucune suggestion trouvée — cherche dans l'onglet Produits.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {(bulkAddedCount > 0 || basket.length > 0) && (
+              <button
+                onClick={finishBulkImport}
+                style={{...S.addBtn,marginTop:14,background:"#FF6B35"}}>
+                💰 Voir l'optimisation →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* QTY + CHAIN MODAL */}
       {showQty && (
@@ -400,7 +724,7 @@ export default function App() {
       )}
 
       {/* HEADER */}
-      <div style={S.header}>
+      <div style={S.header} className="header-desktop">
         <div style={S.appName}>🛒 SmartSal</div>
         <div style={S.appSub}>Compare et optimise tes courses en Israël</div>
         <div style={S.disclaimer}>
@@ -421,7 +745,12 @@ export default function App() {
 
       {/* SEARCH TAB */}
       {tab==="search" && (
-        <div style={S.content}>
+        <div style={S.content} className="tab-content">
+          <button
+            onClick={()=>{ setBulkAddedCount(0); setBulkNotFound([]); setShowBulkModal(true); }}
+            style={{width:"100%",padding:"12px 14px",background:"#fff",border:"1.5px dashed #2D5016",borderRadius:12,fontSize:13,fontWeight:700,color:"#2D5016",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            📋 Importer une liste entière
+          </button>
           <input style={S.searchInput} placeholder="🔍 Chercher un produit..."
             value={search} onChange={e=>setSearch(e.target.value)}/>
 
@@ -434,7 +763,7 @@ export default function App() {
             ))}
           </div>
 
-          <div style={S.productGrid}>
+          <div className="product-grid" style={S.productGrid}>
             {(()=>{
               const families = {};
               const displayList = [];
@@ -518,7 +847,7 @@ export default function App() {
 
       {/* BASKET TAB */}
       {tab==="basket" && (
-        <div style={S.content}>
+        <div style={S.content} className="tab-content">
           {basket.length===0 ? (
             <div style={S.empty}>
               <div style={{fontSize:48}}>🧺</div>
@@ -545,9 +874,18 @@ export default function App() {
                     {items.map(item=>(
                       <div key={item.product.id} style={S.basketItem}>
                         <div style={S.basketEmoji}>{item.product.emoji}</div>
-                        <div style={{flex:1}}>
+                        <div style={{flex:1,minWidth:0}}>
                           <div style={S.basketName}>{item.product.name}</div>
-                          <div style={{fontSize:11,color:"#999"}}>{item.product.unit} · ×{item.qty}</div>
+                          <div style={{fontSize:11,color:"#999",marginBottom:6}}>
+                            {displayLabel(item) || item.product.unit}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <button onClick={()=>changeQty(item.product.id,-1)} disabled={(displayCount(item)??item.qty)<=1}
+                              style={{width:28,height:28,borderRadius:8,border:"1.5px solid #EEE8DE",background:(displayCount(item)??item.qty)<=1?"#F5F5F5":"#fff",color:(displayCount(item)??item.qty)<=1?"#CCC":"#2D5016",fontSize:18,fontWeight:700,cursor:(displayCount(item)??item.qty)<=1?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>−</button>
+                            <span style={{minWidth:28,textAlign:"center",fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:14,color:"#2D5016"}}>{displayCount(item) ?? item.qty}</span>
+                            <button onClick={()=>changeQty(item.product.id,+1)}
+                              style={{width:28,height:28,borderRadius:8,border:"1.5px solid #EEE8DE",background:"#fff",color:"#2D5016",fontSize:18,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>+</button>
+                          </div>
                         </div>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontSize:13,color:"#2D5016",fontWeight:700}}>
@@ -585,7 +923,18 @@ export default function App() {
 
       {/* RESULT TAB */}
       {tab==="result" && (
-        <div style={S.content}>
+        <div style={S.content} className="tab-content">
+          {bulkNotFound.length > 0 && (
+            <div style={{background:"#FFF8E1",border:"1.5px solid #FFD54F",borderRadius:12,padding:"12px 14px",marginBottom:12,position:"relative"}}>
+              <button onClick={()=>setBulkNotFound([])} style={{position:"absolute",top:6,right:8,background:"none",border:"none",fontSize:18,color:"#999",cursor:"pointer"}}>×</button>
+              <div style={{fontWeight:700,color:"#B27A00",marginBottom:6,fontSize:13,paddingRight:20}}>
+                ⚠️ {bulkNotFound.length} produit{bulkNotFound.length>1?"s":""} non trouvé{bulkNotFound.length>1?"s":""} dans ta liste :
+              </div>
+              {bulkNotFound.map((nf,i)=>(
+                <div key={i} style={{fontSize:13,color:"#555",padding:"2px 0"}}>• {nf.text}</div>
+              ))}
+            </div>
+          )}
           {!result ? (
             <div style={S.empty}>
               <div style={{fontSize:48}}>💰</div>
@@ -749,7 +1098,7 @@ export default function App() {
                       <div style={S.chainItem}>
                         <span style={{fontSize:16}}>{item.product.emoji}</span>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:13}}>{item.product.name} {item.qty>1&&`x${item.qty}`}</div>
+                          <div style={{fontSize:13}}>{item.product.name} {(()=>{ const c = displayCount(item); if (c !== null) return `× ${c}`; return item.qty>1?`× ${item.qty}`:""; })()}</div>
                           {item.overpay>0.1&&(
                             <div style={{fontSize:11,color:"#E53935"}}>
                               +{item.overpay.toFixed(1)}₪ vs {item.cheapest}
@@ -942,7 +1291,7 @@ export default function App() {
         const pct        = totalItems > 0 ? Math.round(doneCount/totalItems*100) : 0;
         const allDone    = doneCount === totalItems && totalItems > 0;
         return (
-          <div style={{position:"fixed",inset:0,background:"#F5F0E8",zIndex:1000,overflowY:"auto",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',sans-serif"}}>
+          <div className="shared-page" style={{position:"fixed",inset:0,background:"#F5F0E8",zIndex:1000,overflowY:"auto",fontFamily:"'DM Sans',sans-serif"}}>
 
             {allDone && (
               <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#2D5016",color:"#fff",padding:"10px 20px",borderRadius:50,fontSize:13,fontWeight:500,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.2)"}}>
@@ -981,6 +1330,62 @@ export default function App() {
             </div>
 
             <div style={{padding:"12px 16px"}}>
+              {/* BANNIÈRE ÉCONOMIES */}
+              {result.savings > 0 && (
+                <div style={{background:"linear-gradient(135deg,#2D5016,#43A047)",borderRadius:14,padding:"14px 16px",marginBottom:14,color:"#fff",boxShadow:"0 4px 16px rgba(45,80,22,0.25)"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.85)",marginBottom:4}}>
+                    💡 Si tu avais commandé avec SmartSal
+                  </div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,color:"#fff"}}>tu aurais économisé</span>
+                    <span style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:"#A8D878"}}>{result.savings.toFixed(0)}₪</span>
+                  </div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4}}>
+                    vs. tout acheter au supermarché le plus cher ({result.totalWorst.toFixed(0)}₪)
+                  </div>
+                </div>
+              )}
+
+              {/* AJOUT RAPIDE D'UN PRODUIT */}
+              <div style={{position:"relative",marginBottom:14}}>
+                <input
+                  type="text"
+                  value={sharedSearch}
+                  onChange={e=>setSharedSearch(e.target.value)}
+                  placeholder="➕ Ajouter un produit (ex: pain, lait...)"
+                  style={{width:"100%",padding:"12px 14px",borderRadius:12,border:"1.5px solid #EEE8DE",fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#fff",outline:"none",color:"#222",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}
+                />
+                {sharedSearch.trim() && (() => {
+                  const matches = PRODUCTS
+                    .filter(p => normalize(p.name).includes(normalize(sharedSearch)))
+                    .slice(0, 6);
+                  if (matches.length === 0) return (
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:"#fff",borderRadius:12,padding:"10px 14px",boxShadow:"0 4px 16px rgba(0,0,0,0.1)",fontSize:13,color:"#888",zIndex:10}}>
+                      Aucun produit trouvé.
+                    </div>
+                  );
+                  return (
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:"#fff",borderRadius:12,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:10,maxHeight:280,overflowY:"auto"}}>
+                      {matches.map(p => {
+                        const inBasket = basket.find(i => i.product.id === p.id);
+                        const best = cheapestChain(p);
+                        return (
+                          <div key={p.id} onClick={()=>{ addProductDirect(p, 1); setSharedSearch(""); }}
+                            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #F5F0E8"}}>
+                            <span style={{fontSize:20}}>{p.emoji}</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:600,color:"#222"}}>{p.name}</div>
+                              <div style={{fontSize:11,color:"#999"}}>{p.unit} · dès {p.prices[best].toFixed(1)}₪ ({best})</div>
+                            </div>
+                            <span style={{fontSize:12,fontWeight:700,color:inBasket?"#A8D878":"#2D5016"}}>{inBasket?"✓ +1":"+ Ajouter"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {CHAINS.filter(c=>result.byChain[c].items.length>0).map(chain=>{
                 const items      = result.byChain[chain].items;
                 const chainDone  = items.filter(i=>checked.has(i.product.id)).length;
@@ -1010,12 +1415,14 @@ export default function App() {
                               {item.product.emoji} {item.product.name}
                             </div>
                           </div>
-                          {item.qty > 1 && (
-                            <div style={{background:"#FF6B35",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:700,flexShrink:0}}>
-                              ×{item.qty}
-                            </div>
-                          )}
-                          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,color:isDone?"#CCC":chainColor,flexShrink:0}}>
+                          <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,flexShrink:0,background:"#F5F0E8",borderRadius:8,padding:"2px 4px"}}>
+                            <button onClick={()=>changeQty(item.product.id,-1)} disabled={(displayCount(item)??item.qty)<=1}
+                              style={{width:24,height:24,borderRadius:6,border:"none",background:"transparent",color:(displayCount(item)??item.qty)<=1?"#CCC":"#2D5016",fontSize:16,fontWeight:700,cursor:(displayCount(item)??item.qty)<=1?"default":"pointer",padding:0,lineHeight:1}}>−</button>
+                            <span style={{minWidth:18,textAlign:"center",fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:12,color:"#2D5016"}}>{displayCount(item) ?? item.qty}</span>
+                            <button onClick={()=>changeQty(item.product.id,+1)}
+                              style={{width:24,height:24,borderRadius:6,border:"none",background:"transparent",color:"#2D5016",fontSize:16,fontWeight:700,cursor:"pointer",padding:0,lineHeight:1}}>+</button>
+                          </div>
+                          <div style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,color:isDone?"#CCC":chainColor,flexShrink:0,minWidth:50,textAlign:"right"}}>
                             {item.price.toFixed(1)}₪
                           </div>
                         </div>
@@ -1025,15 +1432,6 @@ export default function App() {
                 );
               })}
 
-              <button onClick={()=>{
-                setSharedMode(false);
-                setBasket([]);
-                setChecked(new Set());
-                window.history.replaceState({}, "", window.location.pathname);
-              }}
-                style={{width:"100%",padding:"14px",background:"#FF6B35",color:"#fff",border:"none",borderRadius:14,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"'Syne',sans-serif",marginTop:4}}>
-                🛒 Créer ma propre liste
-              </button>
               <div style={{height:40}}/>
             </div>
           </div>
@@ -1073,7 +1471,7 @@ export default function App() {
               <div style={{fontSize:12,fontWeight:700,color:"#2D5016",marginBottom:8}}>Récap du panier</div>
               {basket.map((item,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
-                  <span>{item.product.emoji} {item.product.name} {item.qty>1?`×${item.qty}`:""}</span>
+                  <span>{item.product.emoji} {item.product.name} {(()=>{ const c = displayCount(item); if (c !== null) return `× ${c}`; return item.qty>1?`× ${item.qty}`:""; })()}</span>
                   <span style={{fontWeight:600}}>{(item.product.prices[item.chosenChain || cheapestChain(item.product)]*item.qty).toFixed(1)}₪</span>
                 </div>
               ))}
@@ -1232,7 +1630,7 @@ export default function App() {
 }
 
 const S = {
-  root:{fontFamily:"'DM Sans',sans-serif",background:"#F5F0E8",minHeight:"100vh",maxWidth:430,margin:"0 auto"},
+  root:{fontFamily:"'DM Sans',sans-serif",background:"#F5F0E8",minHeight:"100vh",width:"100%",margin:"0 auto"},
   header:{background:"#2D5016",padding:"48px 20px 20px",color:"#fff"},
   appName:{fontFamily:"'Syne',sans-serif",fontSize:24,fontWeight:800,color:"#fff",marginBottom:4},
   appSub:{fontSize:13,color:"rgba(255,255,255,0.7)",marginBottom:8},
