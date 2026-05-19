@@ -1,4 +1,91 @@
 import { useState, useEffect, useMemo } from "react";
+import productsJson from "./products.json";
+
+// --- TRADUCTIONS FR / HE ---
+const T = {
+  // Tabs
+  "tab.products":     { fr: "🔍 Produits",          he: "🔍 מוצרים" },
+  "tab.basket":       { fr: "🧺 Panier",            he: "🧺 סל" },
+  "tab.optimize":     { fr: "💰 Optimiser",         he: "💰 ייעול" },
+  // Header
+  "header.sub":       { fr: "Compare et optimise tes courses en Israël", he: "השווה וייעל את הקניות שלך בישראל" },
+  "header.disclaimer":{ fr: "⚠️ Prix indicatifs 2026 — non contractuels", he: "⚠️ מחירים מקורבים 2026 — לא מחייבים" },
+  // Search
+  "search.import":    { fr: "📋 Importer une liste entière", he: "📋 ייבא רשימה שלמה" },
+  "search.placeholder":{fr:"🔍 Chercher un produit...",      he: "🔍 חפש מוצר..." },
+  "cat.all":          { fr: "Tous",                 he: "הכל" },
+  // Product card
+  "card.from":        { fr: "dès",                  he: "החל מ-" },
+  "card.add":         { fr: "+ Ajouter",            he: "+ הוסף" },
+  "card.added":       { fr: "✓ Ajouté",             he: "✓ נוסף" },
+  // Qty modal
+  "qty.title":        { fr: "Quantité",             he: "כמות" },
+  "qty.unit":         { fr: "Unité",                he: "יחידה" },
+  "qty.chooseChain":  { fr: "Choisir le supermarché", he: "בחר סופרמרקט" },
+  "qty.cheapest":     { fr: "MOINS CHER",           he: "הזול ביותר" },
+  "qty.confirm":      { fr: "Ajouter chez",         he: "הוסף ב-" },
+  // Basket
+  "basket.empty":     { fr: "Ton panier est vide",  he: "הסל שלך ריק" },
+  "basket.findProducts": { fr: "Chercher des produits", he: "חפש מוצרים" },
+  "basket.remove":    { fr: "✕ Retirer",            he: "✕ הסר" },
+  "basket.removeQ":   { fr: "Retirer ?",            he: "להסיר?" },
+  "basket.yes":       { fr: "Oui",                  he: "כן" },
+  "basket.no":        { fr: "Non",                  he: "לא" },
+  "basket.units":     { fr: "unités",               he: "יחידות" },
+  "basket.unit":      { fr: "unité",                he: "יחידה" },
+  "basket.seeOpt":    { fr: "Voir l'optimisation",  he: "ראה את הייעול" },
+  // Optimize tab
+  "opt.inStore":      { fr: "🏪 En magasin",        he: "🏪 בחנות" },
+  "opt.delivery":     { fr: "🚚 Livraison",         he: "🚚 משלוח" },
+  "opt.youSave":      { fr: "Tu économises",        he: "אתה חוסך" },
+  "opt.vsExpensive":  { fr: "vs supermarché le plus cher", he: "לעומת הסופר היקר ביותר" },
+  "opt.total":        { fr: "Total produits",       he: "סך הכל מוצרים" },
+  // Bulk modal
+  "bulk.title":       { fr: "Importer une liste",   he: "ייבא רשימה" },
+  "bulk.desc":        { fr: "Colle ta liste de courses ci-dessous. Un produit par ligne, avec la quantité au début.", he: "הדבק את רשימת הקניות שלך למטה. מוצר בכל שורה, עם הכמות בהתחלה." },
+  "bulk.import":      { fr: "✨ Importer & optimiser", he: "✨ ייבא וייעל" },
+  "bulk.added":       { fr: "produit(s) ajouté(s) au panier", he: "מוצרים נוספו לסל" },
+  "bulk.notFound":    { fr: "produit(s) non trouvé(s)", he: "מוצרים לא נמצאו" },
+  "bulk.suggestion":  { fr: "💡 Tu cherchais peut-être :", he: "💡 אולי חיפשת:" },
+  "bulk.searchManually": { fr: "Cherche-les manuellement dans l'onglet Produits si tu veux les ajouter.", he: "חפש אותם ידנית בלשונית מוצרים אם תרצה להוסיפם." },
+  "bulk.noMatch":     { fr: "Aucune suggestion trouvée — cherche dans l'onglet Produits.", he: "לא נמצאו הצעות — חפש בלשונית מוצרים." },
+  // Shared list
+  "shared.title":     { fr: "Liste partagée",       he: "רשימה משותפת" },
+  "shared.items":     { fr: "article",              he: "פריט" },
+  "shared.itemsP":    { fr: "articles",             he: "פריטים" },
+  "shared.checkAll":  { fr: "✓ Tout cocher",        he: "✓ סמן הכל" },
+  "shared.uncheckAll":{ fr: "↺ Tout décocher",      he: "↺ בטל הכל" },
+  "shared.allDone":   { fr: "✅ Tous les articles cochés !", he: "✅ כל הפריטים סומנו!" },
+  "shared.savings1":  { fr: "💡 Si tu avais commandé avec SmartSal", he: "💡 אם היית מזמין דרך SmartSal" },
+  "shared.savings2":  { fr: "tu aurais économisé",  he: "היית חוסך" },
+  "shared.savings3":  { fr: "vs. tout acheter au supermarché le plus cher", he: "לעומת קנייה מלאה בסופר היקר ביותר" },
+  "shared.addProd":   { fr: "➕ Ajouter un produit (ex: pain, lait...)", he: "➕ הוסף מוצר (לדוגמה: לחם, חלב...)" },
+  "shared.noneFound": { fr: "Aucun produit trouvé.", he: "לא נמצא אף מוצר." },
+  "shared.add":       { fr: "+ Ajouter",            he: "+ הוסף" },
+  "shared.added":     { fr: "✓ +1",                 he: "✓ +1" },
+  // Promo / soldes
+  "promo.badge":      { fr: "PROMO",                he: "מבצע" },
+  "promo.section":    { fr: "🔥 En promo",          he: "🔥 במבצע" },
+  // Pagination
+  "page.loadMore":    { fr: "Charger plus",         he: "טען עוד" },
+  "page.shown":       { fr: "affichés sur",         he: "מוצגים מתוך" },
+};
+
+// Détecte si un produit est en promo (cherche "מבצע" dans le nom hébreu)
+function isPromo(p) {
+  return /מבצע/.test(p?.name_he || "");
+}
+
+function t(key, lang) {
+  const entry = T[key];
+  if (!entry) return key;
+  return entry[lang] || entry.fr || key;
+}
+
+// Détecte si une chaîne contient des caractères hébreux
+function hasHebrew(s) {
+  return /[֐-׿]/.test(s || "");
+}
 
 const CHAINS = ["Rami Levi", "Osher Ad", "Shufersal", "Yohananof"];
 
@@ -16,12 +103,11 @@ const DELIVERY = {
   "Yohananof":  { fee:24.9, freeAbove:250, minOrder:80,  delay:"24-48h",url:"https://www.yohananof.co.il",                        available:false },
 };
 
-// Prix en shekels · Israël 2026 · Basés sur études de marché
-// Sources: Yedioth Aharonoth, Francosphere, IsraelValley, Anglo-List
-// Hiérarchie confirmée: Rami Levi < Yohananof < Osher Ad < Shufersal (global)
-// Exception viande: Osher Ad plus cher (kashrut Mehadrin)
-// Exception vrac/grandes quantités: Osher Ad compétitif
-const PRODUCTS = [
+// FALLBACK : produits fictifs basés sur études de marché 2026, utilisés
+// uniquement si src/products.json est vide (le script "npm run prices" ne
+// s'est jamais lancé ou a échoué). Sinon, on utilise les données réelles
+// scrappées des portails de transparence.
+const FALLBACK_PRODUCTS = [
   // Fruits & Légumes — Rami Levi imbattable, Osher Ad correct, Shufersal le plus cher
   { id:1,  name:"Tomates",           cat:"🥬 Fruits & Légumes",  emoji:"🍅", prices:{ "Rami Levi":5.9,  "Osher Ad":8.9,  "Shufersal":11.9, "Yohananof":8.5  }, unit:"kg" },
   { id:2,  name:"Concombres",        cat:"🥬 Fruits & Légumes",  emoji:"🥒", prices:{ "Rami Levi":4.9,  "Osher Ad":6.9,  "Shufersal":9.9,  "Yohananof":6.9  }, unit:"kg" },
@@ -199,6 +285,12 @@ const PRODUCTS = [
   { id:167,name:"Papier toilette x32",cat:"🧹 Nettoyage",          emoji:"🧻", prices:{ "Rami Levi":54.9, "Osher Ad":41.9, "Shufersal":64.9, "Yohananof":58.9 }, unit:"grand paquet" },
   { id:168,name:"Lessive 5kg",       cat:"🧹 Nettoyage",          emoji:"🧺", prices:{ "Rami Levi":64.9, "Osher Ad":49.9, "Shufersal":74.9, "Yohananof":68.9 }, unit:"5kg" },
 ];
+
+// Sélection automatique : données réelles si products.json est rempli,
+// sinon les produits fictifs de fallback.
+const PRODUCTS = (Array.isArray(productsJson) && productsJson.length > 0)
+  ? productsJson
+  : FALLBACK_PRODUCTS;
 
 // Poids moyen par unité (kg) — utilisé pour estimer le prix quand
 // l'utilisateur écrit "4 courgettes" au lieu de "1 kg courgettes"
@@ -405,6 +497,44 @@ export default function App() {
   const [bulkAddedCount, setBulkAddedCount] = useState(0);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [sharedSearch, setSharedSearch] = useState("");
+  const [lang, setLang] = useState(() => {
+    try { return localStorage.getItem("smartsal_lang") || "fr"; } catch { return "fr"; }
+  });
+  useEffect(() => { try { localStorage.setItem("smartsal_lang", lang); } catch {} }, [lang]);
+
+  // Pagination : on n'affiche que les 20 premiers, l'utilisateur charge plus à la demande
+  const [displayLimit, setDisplayLimit] = useState(20);
+  useEffect(() => { setDisplayLimit(20); }, [search, selectedCat]);
+
+  // Helper local : trad d'une clé dans la langue courante
+  const tr = (key) => t(key, lang);
+  // Nettoie le nom : retire "מבצע" (déjà indiqué par le badge), les étoiles
+  // (★ ☆ ⭐ ✦ ✧ *), et compresse les espaces.
+  const stripPromo = (s) => (s || "")
+    .replace(/מבצע/g, "")
+    .replace(/[★☆⭐✦✧✩✪✫✬✭✮✯*]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Choisit le nom à afficher pour un produit (FR si dispo & traduit, sinon HE)
+  const productName = (p) => {
+    if (!p) return "";
+    if (lang === "he") return stripPromo(p.name_he || p.name || "");
+    const fr = p.name || "";
+    if (!fr) return stripPromo(p.name_he || "");
+    const hebrewChars = (fr.match(/[֐-׿]/g) || []).length;
+    if (hebrewChars > fr.length * 0.4 && p.name_he) return stripPromo(p.name_he);
+    return stripPromo(fr);
+  };
+  const productSubName = (p) => {
+    if (!p) return null;
+    if (lang === "he") {
+      const fr = p.name || "";
+      const hebrewChars = (fr.match(/[֐-׿]/g) || []).length;
+      if (fr && hebrewChars < fr.length * 0.4) return stripPromo(fr);
+      return null;
+    }
+    return stripPromo(p.name_he || "") || null;
+  };
 
   const cats = ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
 
@@ -427,7 +557,11 @@ export default function App() {
   }, []);
 
   const filtered = PRODUCTS.filter(p => {
-    const matchSearch = !search || normalize(p.name).includes(normalize(search));
+    const s = normalize(search);
+    const matchSearch = !search
+      || normalize(p.name).includes(s)
+      || (p.name_he && p.name_he.includes(search))
+      || (p.manufacturer && normalize(p.manufacturer).includes(s));
     const matchCat = selectedCat==="Tous" || p.cat===selectedCat;
     return matchSearch && matchCat;
   });
@@ -532,7 +666,7 @@ export default function App() {
   const result = useMemo(() => basket.length > 0 ? optimizeBasket(basket) : null, [basket]);
 
   return (
-    <div style={S.root} className="app-root">
+    <div style={{...S.root, direction: lang === "he" ? "rtl" : "ltr"}} className="app-root">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -585,11 +719,11 @@ export default function App() {
         <div className="overlay" style={S.overlay} onClick={()=>setShowBulkModal(false)}>
           <div className="slide-in" style={{...S.modal,maxWidth:560}} onClick={e=>e.stopPropagation()}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:"#2D5016"}}>📋 Importer une liste</div>
+              <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:"#2D5016"}}>📋 {tr("bulk.title")}</div>
               <button onClick={()=>setShowBulkModal(false)} style={{background:"none",border:"none",fontSize:24,color:"#999",cursor:"pointer",padding:0,lineHeight:1}}>×</button>
             </div>
             <div style={{fontSize:13,color:"#666",lineHeight:1.5,marginBottom:14}}>
-              Colle ta liste de courses ci-dessous. Un produit par ligne, avec la quantité au début.
+              {tr("bulk.desc")}
             </div>
             <textarea
               placeholder={"2 kg tomates\n1 pain\n6 oeufs\n500 g feta\n1 litre lait\n3 yaourts"}
@@ -601,7 +735,7 @@ export default function App() {
               onClick={importBulkList}
               disabled={!bulkInput.trim()}
               style={{...S.addBtn,marginTop:12,opacity:bulkInput.trim()?1:0.5,cursor:bulkInput.trim()?"pointer":"default"}}>
-              ✨ Importer & optimiser
+              {tr("bulk.import")}
             </button>
             {bulkAddedCount > 0 && (
               <div style={{background:"#E8F5E9",border:"1.5px solid #A8D878",borderRadius:12,padding:"12px 14px",marginTop:14,fontSize:13,color:"#2D5016",fontWeight:600}}>
@@ -654,17 +788,18 @@ export default function App() {
         <div className="overlay" style={S.overlay} onClick={()=>setShowQty(null)}>
           <div className="slide-in" style={S.modal} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:40,textAlign:"center",marginBottom:8}}>{showQty.emoji}</div>
-            <div style={{fontFamily:"'Syne',sans-serif",fontSize:18,fontWeight:800,textAlign:"center",marginBottom:2}}>{showQty.name}</div>
-            <div style={{fontSize:12,color:"#999",textAlign:"center",marginBottom:16}}>Unité : {showQty.unit}</div>
+            <div style={{fontFamily:"'Syne',sans-serif",fontSize:18,fontWeight:800,textAlign:"center",marginBottom:2,direction:lang==="he"?"rtl":"ltr"}}>{productName(showQty)}</div>
+            {productSubName(showQty) && <div style={{fontSize:13,color:"#888",direction:hasHebrew(productSubName(showQty))?"rtl":"ltr",textAlign:"center",marginBottom:4}}>{productSubName(showQty)}</div>}
+            <div style={{fontSize:12,color:"#999",textAlign:"center",marginBottom:16}}>{tr("qty.unit")} : {showQty.unit}</div>
 
-            <div style={{fontSize:13,color:"#555",marginBottom:8,fontWeight:600}}>Quantité</div>
+            <div style={{fontSize:13,color:"#555",marginBottom:8,fontWeight:600}}>{tr("qty.title")}</div>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
               <button onClick={()=>setTempQty(q=>String(Math.max(1,parseInt(q)-1)))} style={S.qtyBtn}>−</button>
               <div style={{flex:1,textAlign:"center",fontFamily:"'Syne',sans-serif",fontSize:28,fontWeight:800,color:"#2D5016"}}>{tempQty}</div>
               <button onClick={()=>setTempQty(q=>String(parseInt(q)+1))} style={S.qtyBtn}>+</button>
             </div>
 
-            <div style={{fontSize:13,color:"#555",marginBottom:8,fontWeight:600}}>Choisir le supermarché</div>
+            <div style={{fontSize:13,color:"#555",marginBottom:8,fontWeight:600}}>{tr("qty.chooseChain")}</div>
             {Object.entries(showQty.prices).sort((a,b)=>a[1]-b[1]).map(([chain,price],i)=>{
               const qty = parseInt(tempQty)||1;
               const best = Object.entries(showQty.prices).sort((a,b)=>a[1]-b[1]).filter(([c,p])=>p<999)[0];
@@ -717,7 +852,7 @@ export default function App() {
             )}
 
             <button onClick={confirmAdd} style={{...S.addBtn,marginTop:8}}>
-              Ajouter chez {tempChain} ✓
+              {tr("qty.confirm")} {tempChain} ✓
             </button>
           </div>
         </div>
@@ -725,21 +860,34 @@ export default function App() {
 
       {/* HEADER */}
       <div style={S.header} className="header-desktop">
-        <div style={S.appName}>🛒 SmartSal</div>
-        <div style={S.appSub}>Compare et optimise tes courses en Israël</div>
-        <div style={S.disclaimer}>
-          ⚠️ Prix indicatifs 2026 — non contractuels
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{flex:1}}>
+            <div style={S.appName}>🛒 SmartSal</div>
+            <div style={S.appSub}>{tr("header.sub")}</div>
+            <div style={S.disclaimer}>{tr("header.disclaimer")}</div>
+          </div>
+          {/* Toggle FR / HE */}
+          <div style={{display:"flex",background:"rgba(255,255,255,0.12)",borderRadius:20,padding:3,gap:0,flexShrink:0}}>
+            <button onClick={()=>setLang("fr")}
+              style={{padding:"4px 10px",borderRadius:18,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:lang==="fr"?"#fff":"transparent",color:lang==="fr"?"#2D5016":"rgba(255,255,255,0.7)",fontFamily:"'DM Sans',sans-serif"}}>
+              FR
+            </button>
+            <button onClick={()=>setLang("he")}
+              style={{padding:"4px 10px",borderRadius:18,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:lang==="he"?"#fff":"transparent",color:lang==="he"?"#2D5016":"rgba(255,255,255,0.7)",fontFamily:"'DM Sans',sans-serif"}}>
+              HE
+            </button>
+          </div>
         </div>
       </div>
 
       {/* TABS */}
       <div style={S.tabs}>
-        <div className="tab-btn" onClick={()=>setTab("search")} style={{...S.tabBtn,...(tab==="search"?S.tabActive:{})}}>🔍 Produits</div>
+        <div className="tab-btn" onClick={()=>setTab("search")} style={{...S.tabBtn,...(tab==="search"?S.tabActive:{})}}>{tr("tab.products")}</div>
         <div className="tab-btn" onClick={()=>setTab("basket")} style={{...S.tabBtn,...(tab==="basket"?S.tabActive:{})}}>
-          🧺 Panier {basket.length>0&&<span style={S.badge}>{basket.length}</span>}
+          {tr("tab.basket")} {basket.length>0&&<span style={S.badge}>{basket.length}</span>}
         </div>
         <div className="tab-btn" onClick={()=>setTab("result")} style={{...S.tabBtn,...(tab==="result"?S.tabActive:{})}}>
-          💰 Optimiser
+          {tr("tab.optimize")}
         </div>
       </div>
 
@@ -749,16 +897,16 @@ export default function App() {
           <button
             onClick={()=>{ setBulkAddedCount(0); setBulkNotFound([]); setShowBulkModal(true); }}
             style={{width:"100%",padding:"12px 14px",background:"#fff",border:"1.5px dashed #2D5016",borderRadius:12,fontSize:13,fontWeight:700,color:"#2D5016",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            📋 Importer une liste entière
+            {tr("search.import")}
           </button>
-          <input style={S.searchInput} placeholder="🔍 Chercher un produit..."
+          <input style={S.searchInput} placeholder={tr("search.placeholder")}
             value={search} onChange={e=>setSearch(e.target.value)}/>
 
           <div style={S.catScroll}>
             {cats.map(c=>(
               <div key={c} className="chip" onClick={()=>setSelectedCat(c)}
                 style={{...S.chip,...(selectedCat===c?S.chipActive:{})}}>
-                {c.split(" ").slice(1).join(" ")||c}
+                {c === "Tous" ? tr("cat.all") : (c.split(" ").slice(1).join(" ") || c)}
               </div>
             ))}
           </div>
@@ -767,7 +915,13 @@ export default function App() {
             {(()=>{
               const families = {};
               const displayList = [];
-              filtered.forEach(p=>{
+              // Tri : promo d'abord, puis le reste
+              const sorted = [...filtered].sort((a,b) => {
+                const pa = isPromo(a) ? 0 : 1;
+                const pb = isPromo(b) ? 0 : 1;
+                return pa - pb;
+              });
+              sorted.forEach(p=>{
                 if (p.ownBrand) {
                   if (!families[p.family]) families[p.family]=[];
                   families[p.family].push(p);
@@ -778,13 +932,22 @@ export default function App() {
               Object.entries(families).forEach(([family,brands])=>{
                 displayList.push({type:"ownbrand",family,familyName:family.charAt(0).toUpperCase()+family.slice(1),brands});
               });
-              return displayList.map((item,idx)=>{
+              // Pagination : on coupe à displayLimit
+              const visible = displayList.slice(0, displayLimit);
+              return visible.map((item,idx)=>{
                 if (item.type==="product") {
                   const p=item.data, best=cheapestChain(p), inB=basket.find(i=>i.product.id===p.id);
+                  const promo = isPromo(p);
                   return (
-                    <div key={p.id} className="prod-card" style={S.productCard}>
+                    <div key={p.id} className="prod-card" style={{...S.productCard, position:"relative", border: promo ? "2px solid #E53935" : (S.productCard.border || "none")}}>
+                      {promo && (
+                        <div style={{position:"absolute",top:-1,left:-1,background:"#E53935",color:"#fff",fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:"14px 0 14px 0",fontFamily:"'Syne',sans-serif",letterSpacing:0.5,boxShadow:"0 2px 6px rgba(229,57,53,0.35)",zIndex:2}}>
+                          🔥 {tr("promo.badge")}
+                        </div>
+                      )}
                       <div style={S.productEmoji}>{p.emoji}</div>
-                      <div style={S.productName}>{p.name}</div>
+                      <div style={{...S.productName,direction:lang==="he"?"rtl":"ltr"}}>{productName(p)}</div>
+                      {productSubName(p) && <div style={{fontSize:10,color:"#999",direction:hasHebrew(productSubName(p))?"rtl":"ltr",fontWeight:400,lineHeight:1.2,marginTop:1,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{productSubName(p)}</div>}
                       <div style={S.productUnit}>{p.unit}</div>
                       <div style={{display:"flex",alignItems:"center",gap:4,marginTop:6,marginBottom:8}}>
                         <div style={{width:6,height:6,borderRadius:"50%",background:CHAIN_COLORS[best].bg}}/>
@@ -841,6 +1004,24 @@ export default function App() {
               });
             })()}
           </div>
+          {/* Pagination — bouton "Charger plus" */}
+          {(() => {
+            const total = filtered.length;
+            if (total <= displayLimit) return null;
+            const shown = Math.min(displayLimit, total);
+            return (
+              <div style={{textAlign:"center",marginTop:14,marginBottom:8}}>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>
+                  {shown} / {total}
+                </div>
+                <button
+                  onClick={() => setDisplayLimit(d => d + 20)}
+                  style={{padding:"10px 24px",background:"#2D5016",color:"#fff",border:"none",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                  ↓ {tr("page.loadMore")} (+20)
+                </button>
+              </div>
+            );
+          })()}
           <div style={{height:80}}/>
         </div>
       )}
@@ -851,7 +1032,7 @@ export default function App() {
           {basket.length===0 ? (
             <div style={S.empty}>
               <div style={{fontSize:48}}>🧺</div>
-              <div style={S.emptyText}>Ton panier est vide</div>
+              <div style={S.emptyText}>{tr("basket.empty")}</div>
               <button onClick={()=>setTab("search")} style={{...S.addBtn,width:"auto",padding:"12px 24px",marginTop:16}}>
                 Chercher des produits
               </button>
@@ -875,7 +1056,8 @@ export default function App() {
                       <div key={item.product.id} style={S.basketItem}>
                         <div style={S.basketEmoji}>{item.product.emoji}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={S.basketName}>{item.product.name}</div>
+                          <div style={{...S.basketName,direction:lang==="he"?"rtl":"ltr"}}>{productName(item.product)}</div>
+                          {productSubName(item.product) && <div style={{fontSize:10,color:"#AAA",direction:hasHebrew(productSubName(item.product))?"rtl":"ltr",fontWeight:400,marginBottom:2}}>{productSubName(item.product)}</div>}
                           <div style={{fontSize:11,color:"#999",marginBottom:6}}>
                             {displayLabel(item) || item.product.unit}
                           </div>
@@ -949,11 +1131,11 @@ export default function App() {
               <div style={{display:"flex",background:"#fff",borderRadius:14,padding:6,marginBottom:12,gap:4,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
                 <button onClick={()=>setDeliveryMode(false)}
                   style={{flex:1,padding:"9px 0",borderRadius:10,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",background:!deliveryMode?"#2D5016":"transparent",color:!deliveryMode?"#fff":"#999",fontFamily:"'DM Sans',sans-serif"}}>
-                  🏪 En magasin
+                  {tr("opt.inStore")}
                 </button>
                 <button onClick={()=>setDeliveryMode(true)}
                   style={{flex:1,padding:"9px 0",borderRadius:10,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",background:deliveryMode?"#2D5016":"transparent",color:deliveryMode?"#fff":"#999",fontFamily:"'DM Sans',sans-serif"}}>
-                  🚚 Livraison
+                  {tr("opt.delivery")}
                 </button>
               </div>
 
@@ -1295,7 +1477,7 @@ export default function App() {
 
             {allDone && (
               <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#2D5016",color:"#fff",padding:"10px 20px",borderRadius:50,fontSize:13,fontWeight:500,zIndex:9999,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.2)"}}>
-                ✅ Tous les articles cochés !
+                {tr("shared.allDone")}
               </div>
             )}
 
@@ -1303,7 +1485,7 @@ export default function App() {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                 <div>
                   <div style={{fontFamily:"'Syne',sans-serif",fontSize:22,fontWeight:800,color:"#fff"}}>🛒 SmartSal</div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:2}}>Liste partagée · {totalItems} article{totalItems>1?"s":""}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:2}}>{tr("shared.title")} · {totalItems} {totalItems>1?tr("shared.itemsP"):tr("shared.items")}</div>
                 </div>
                 <div style={{background:"rgba(255,255,255,0.15)",borderRadius:12,padding:"6px 12px",fontSize:14,fontWeight:700,color:"#fff"}}>
                   {result.totalOptimized.toFixed(0)}₪
@@ -1320,11 +1502,11 @@ export default function App() {
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setChecked(new Set(basket.map(i=>i.product.id)))}
                   style={{flex:1,padding:"8px 4px",borderRadius:12,border:"none",background:"rgba(255,255,255,0.15)",color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                  ✓ Tout cocher
+                  {tr("shared.checkAll")}
                 </button>
                 <button onClick={()=>setChecked(new Set())}
                   style={{flex:1,padding:"8px 4px",borderRadius:12,border:"none",background:"rgba(255,255,255,0.15)",color:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                  ↺ Tout décocher
+                  {tr("shared.uncheckAll")}
                 </button>
               </div>
             </div>
@@ -1334,14 +1516,14 @@ export default function App() {
               {result.savings > 0 && (
                 <div style={{background:"linear-gradient(135deg,#2D5016,#43A047)",borderRadius:14,padding:"14px 16px",marginBottom:14,color:"#fff",boxShadow:"0 4px 16px rgba(45,80,22,0.25)"}}>
                   <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.85)",marginBottom:4}}>
-                    💡 Si tu avais commandé avec SmartSal
+                    {tr("shared.savings1")}
                   </div>
                   <div style={{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}}>
-                    <span style={{fontSize:13,color:"#fff"}}>tu aurais économisé</span>
+                    <span style={{fontSize:13,color:"#fff"}}>{tr("shared.savings2")}</span>
                     <span style={{fontFamily:"'Syne',sans-serif",fontSize:26,fontWeight:800,color:"#A8D878"}}>{result.savings.toFixed(0)}₪</span>
                   </div>
                   <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4}}>
-                    vs. tout acheter au supermarché le plus cher ({result.totalWorst.toFixed(0)}₪)
+                    {tr("shared.savings3")} ({result.totalWorst.toFixed(0)}₪)
                   </div>
                 </div>
               )}
@@ -1352,7 +1534,7 @@ export default function App() {
                   type="text"
                   value={sharedSearch}
                   onChange={e=>setSharedSearch(e.target.value)}
-                  placeholder="➕ Ajouter un produit (ex: pain, lait...)"
+                  placeholder={tr("shared.addProd")}
                   style={{width:"100%",padding:"12px 14px",borderRadius:12,border:"1.5px solid #EEE8DE",fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#fff",outline:"none",color:"#222",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}
                 />
                 {sharedSearch.trim() && (() => {
@@ -1374,7 +1556,8 @@ export default function App() {
                             style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #F5F0E8"}}>
                             <span style={{fontSize:20}}>{p.emoji}</span>
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:600,color:"#222"}}>{p.name}</div>
+                              <div style={{fontSize:13,fontWeight:600,color:"#222",direction:lang==="he"?"rtl":"ltr"}}>{productName(p)}</div>
+                              {productSubName(p) && <div style={{fontSize:10,color:"#AAA",direction:hasHebrew(productSubName(p))?"rtl":"ltr",lineHeight:1.2}}>{productSubName(p)}</div>}
                               <div style={{fontSize:11,color:"#999"}}>{p.unit} · dès {p.prices[best].toFixed(1)}₪ ({best})</div>
                             </div>
                             <span style={{fontSize:12,fontWeight:700,color:inBasket?"#A8D878":"#2D5016"}}>{inBasket?"✓ +1":"+ Ajouter"}</span>
@@ -1411,9 +1594,10 @@ export default function App() {
                             {isDone && "✓"}
                           </div>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:14,fontWeight:500,color:"#222",textDecoration:isDone?"line-through":"none"}}>
-                              {item.product.emoji} {item.product.name}
+                            <div style={{fontSize:14,fontWeight:500,color:"#222",textDecoration:isDone?"line-through":"none",direction:lang==="he"?"rtl":"ltr"}}>
+                              {item.product.emoji} {productName(item.product)}
                             </div>
+                            {productSubName(item.product) && <div style={{fontSize:10,color:"#AAA",direction:hasHebrew(productSubName(item.product))?"rtl":"ltr",lineHeight:1.2}}>{productSubName(item.product)}</div>}
                           </div>
                           <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,flexShrink:0,background:"#F5F0E8",borderRadius:8,padding:"2px 4px"}}>
                             <button onClick={()=>changeQty(item.product.id,-1)} disabled={(displayCount(item)??item.qty)<=1}
