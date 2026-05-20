@@ -363,36 +363,203 @@ function suggestProducts(searchText, max = 3) {
     .map(x => x.p);
 }
 
-// Parse une liste collée en masse, ex:
-//   2 kg tomates
-//   1 pain
-//   6 oeufs
-//   500g feta
+// Dictionnaire FR → mots-clés hébreux pour améliorer le matching
+const FR_TO_HE = {
+  "poireau": "כרישה", "poireaux": "כרישה",
+  "patate douce": "בטטה", "patates douces": "בטטה",
+  "betterave": "סלק", "betteraves": "סלק",
+  "fenouil": "שומר", "fenouils": "שומר",
+  "chou fleur": "כרובית", "choufleur": "כרובית", "chou-fleur": "כרובית",
+  "chou": "כרוב",
+  "basilic": "בזיליקום",
+  "persil": "פטרוזיליה",
+  "coriandre": "כוסברה",
+  "menthe": "נענע",
+  "courgette": "קישוא", "courgettes": "קישוא",
+  "aubergine": "חציל", "aubergines": "חציל",
+  "concombre": "מלפפון", "concombres": "מלפפון",
+  "tomate": "עגבניה", "tomates": "עגבניה",
+  "carotte": "גזר", "carottes": "גזר",
+  "pomme de terre": "תפוח אדמה", "pommes de terre": "תפוח אדמה",
+  "avocat": "אבוקדו", "avocats": "אבוקדו",
+  "champignon": "פטריה", "champignons": "פטריה",
+  "oignon": "בצל", "oignons": "בצל",
+  "ail": "שום",
+  "poivron": "פלפל", "poivrons": "פלפל",
+  "laitue": "חסה", "salade": "חסה",
+  "epinard": "תרד", "épinard": "תרד",
+  "radis": "צנון",
+  "celeri": "סלרי", "céleri": "סלרי",
+  "brocoli": "ברוקולי",
+  "maïs": "תירס", "mais": "תירס",
+  "lait": "חלב",
+  "oeuf": "ביצה", "oeufs": "ביצה", "œuf": "ביצה", "œufs": "ביצה",
+  "beurre": "חמאה",
+  "margarine": "מרגרינה",
+  "creme fraiche": "שמנת", "crème fraîche": "שמנת", "creme": "שמנת",
+  "creme pareve": "שמנת פרווה", "pareve": "פרווה",
+  "fromage": "גבינה",
+  "mozza": "מוצרלה", "mozzarella": "מוצרלה",
+  "parmesan": "פרמזן",
+  "yaourt": "יוגורט",
+  "fromage blanc": "גבינה לבנה",
+  "nutella": "נוטלה",
+  "confiture": "ריבה",
+  "bonne maman": "בון מאמן",
+  "cereale": "דגני", "céréale": "דגני", "cereales": "דגני", "céréales": "דגני",
+  "gateau": "עוגה", "gâteau": "עוגה", "gateaux": "עוגיות", "gâteaux": "עוגיות",
+  "biscuit": "ביסקוויט", "biscuits": "ביסקוויט",
+  "pain": "לחם",
+  "farine": "קמח",
+  "sucre": "סוכר",
+  "sel": "מלח",
+  "poivre": "פלפל שחור",
+  "huile": "שמן",
+  "vinaigre": "חומץ",
+  "pate feuilletee": "בצק עלים", "pâte feuilletée": "בצק עלים", "pate": "בצק",
+  "ail congele": "שום קפוא", "ail congelé": "שום קפוא",
+  "poulet": "עוף",
+  "boeuf": "בקר", "bœuf": "בקר",
+  "saumon": "סלמון",
+  "thon": "טונה",
+  "eau": "מים",
+  "jus": "מיץ",
+  "coca": "קוקה", "coca cola": "קוקה קולה",
+  "pack": null, "packs": null, "שישייה": null,
+  "barquette": null, "barquettes": null,
+};
+
+// Termes trop vagues qui nécessitent une précision de l'utilisateur
+const AMBIGUOUS_TERMS = {
+  "pack": { label: "Pack / שישייה", cat: "🧃 Boissons" },
+  "packs": { label: "Pack / שישייה", cat: "🧃 Boissons" },
+  "שישייה": { label: "שישייה / Pack", cat: "🧃 Boissons" },
+  "lot": { label: "Lot / מארז", cat: null },
+  "barquette": { label: "Barquettes alu", cat: "🛒 Autres" },
+  "barquettes": { label: "Barquettes alu", cat: "🛒 Autres" },
+  "boisson": { label: "Boisson", cat: "🧃 Boissons" },
+  "boissons": { label: "Boissons", cat: "🧃 Boissons" },
+};
+
+// Préfixes parasites à supprimer avant de chercher
+const NOISE_PREFIXES = [
+  /^un gros paquet de\s*/i,
+  /^un petit (truc|peu|pot|paquet) de\s*/i,
+  /^encore un peu de\s*/i,
+  /^un peu de\s*/i,
+  /^encre\s+/i,
+  /^un\s+/i,
+  /^une\s+/i,
+  /^des\s+/i,
+  /^de la\s+/i,
+  /^du\s+/i,
+  /^de\s+/i,
+];
+
+// Suffixes parasites à supprimer
+const NOISE_SUFFIXES = [
+  /\s+de préférence$/i,
+  /\s+peut[ -]?être$/i,
+  /\s+si possible$/i,
+  /\s+individuels?$/i,
+  /\s+individual$/i,
+  /\s+au rayon frais$/i,
+  /\s+frais$/i,
+  /\s+congelé[e]?s?$/i,
+];
+
+function cleanLine(raw) {
+  let s = raw.trim();
+  for (const rx of NOISE_PREFIXES) s = s.replace(rx, "");
+  for (const rx of NOISE_SUFFIXES) s = s.replace(rx, "");
+  return s.trim();
+}
+
 function parseBulkList(text) {
   const KNOWN_UNITS = /^(kg|kgs?|g|gr|gramme|grammes|l|litre|litres|ml|cl|unite|unites|unité|unités|paquet|paquets|boite|boites|boîte|boîtes|piece|pieces|pièce|pièces|x|tete|tetes|tête|têtes|botte|bottes)$/i;
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const matched = [];
   const notFound = [];
+  const ambiguous = [];
   const stripS = (s) => s.replace(/(s|x)$/i, "");
+
+  const searchProduct = (searchStr, searchRaw) => {
+    const search = normalize(searchStr);
+    if (!search) return null;
+    let best = null;
+
+    // a) match exact ou sans 's' final
+    for (const p of PRODUCTS) {
+      const pname = normalize(p.name);
+      if (pname === search || stripS(pname) === stripS(search)) { best = p; break; }
+    }
+    // b) substring FR
+    if (!best) {
+      for (const p of PRODUCTS) {
+        const pname = normalize(p.name);
+        if (pname.length >= 3 && (pname.includes(search) || search.includes(pname))) { best = p; break; }
+      }
+    }
+    // c) tous les tokens FR dans le nom
+    if (!best) {
+      const tokens = search.split(/\s+/).filter(t => t.length >= 3);
+      if (tokens.length > 0) {
+        for (const p of PRODUCTS) {
+          const pname = normalize(p.name);
+          if (tokens.every(t => pname.includes(t))) { best = p; break; }
+        }
+      }
+    }
+    // d) recherche via dictionnaire FR→HE
+    if (!best) {
+      const heWord = FR_TO_HE[normalize(searchStr).toLowerCase()];
+      if (heWord) {
+        for (const p of PRODUCTS) {
+          const phe = p.name_he || p.name || "";
+          if (phe.includes(heWord)) { best = p; break; }
+        }
+      }
+    }
+    // e) recherche partielle FR→HE (pour "confiture bonne maman" → cherche "ריבה" ET "בון מאמן")
+    if (!best) {
+      for (const [fr, he] of Object.entries(FR_TO_HE)) {
+        if (he && normalize(searchStr).includes(normalize(fr))) {
+          for (const p of PRODUCTS) {
+            const phe = p.name_he || p.name || "";
+            if (phe.includes(he)) { best = p; break; }
+          }
+          if (best) break;
+        }
+      }
+    }
+    // f) similarité bigrammes (fallback)
+    if (!best) {
+      const candidates = PRODUCTS
+        .map(p => ({ p, score: Math.max(_similarity(search, normalize(p.name)), _similarity(search, normalize(p.name_he||""))) }))
+        .filter(x => x.score > 0.35)
+        .sort((a,b) => b.score - a.score);
+      if (candidates.length > 0) best = candidates[0].p;
+    }
+
+    return best;
+  };
 
   lines.forEach(rawLine => {
     let qty = 1;
     let unitGiven = false;
-    let rest = rawLine;
-    // 1) extraction quantité en début de ligne (ex: "2 kg tomates", "1.5 l lait", "500g feta")
-    // a) cas "500g" ou "1.5kg" — chiffre collé à l'unité
+    let rest = cleanLine(rawLine);
+
+    // extraction quantité
     const stuckUnit = rest.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|ml|cl)\b\s*(.*)$/i);
     if (stuckUnit) {
       qty = parseFloat(stuckUnit[1].replace(",", ".")) || 1;
       unitGiven = true;
       rest = stuckUnit[3] || "";
-      // conversion sommaire : g/gr → kg, ml/cl → l
       const u = stuckUnit[2].toLowerCase();
       if (u === "g" || u === "gr") qty = qty / 1000;
       if (u === "ml") qty = qty / 1000;
       if (u === "cl") qty = qty / 100;
     } else {
-      // b) cas "2 kg tomates" ou "2 tomates" (sans unité)
       const m = rest.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
       if (m) {
         qty = parseFloat(m[1].replace(",", ".")) || 1;
@@ -405,53 +572,44 @@ function parseBulkList(text) {
         }
       }
     }
-    qty = Math.max(0.01, qty);
-    const search = normalize(rest);
-    if (!search) { notFound.push({ text: rawLine }); return; }
+    // gestion "un" / "une" comme quantité 1
+    const unMatch = rest.match(/^(un|une)\s+(.+)$/i);
+    if (unMatch) { qty = 1; rest = unMatch[2]; }
 
-    let best = null;
-    // a) match exact (avec/sans 's' final)
-    for (const p of PRODUCTS) {
-      const pname = normalize(p.name);
-      if (pname === search || stripS(pname) === stripS(search)) { best = p; break; }
+    qty = Math.max(0.01, qty);
+    const cleaned = rest.trim();
+    if (!cleaned) { notFound.push({ text: rawLine, qty, suggestions: [] }); return; }
+
+    // vérifier si terme ambigu
+    const normalizedCleaned = normalize(cleaned);
+    if (AMBIGUOUS_TERMS[normalizedCleaned] || AMBIGUOUS_TERMS[cleaned]) {
+      const info = AMBIGUOUS_TERMS[normalizedCleaned] || AMBIGUOUS_TERMS[cleaned];
+      const suggestions = info.cat
+        ? PRODUCTS.filter(p => p.cat === info.cat).slice(0, 6)
+        : suggestProducts(cleaned, 6);
+      ambiguous.push({ text: rawLine, cleaned, qty, label: info.label, suggestions });
+      return;
     }
-    // b) substring (search inclus dans nom OU nom inclus dans search)
-    if (!best) {
-      for (const p of PRODUCTS) {
-        const pname = normalize(p.name);
-        if (pname.length >= 3 && (pname.includes(search) || search.includes(pname))) { best = p; break; }
-      }
-    }
-    // c) tous les tokens du search apparaissent dans le nom produit
-    if (!best) {
-      const tokens = search.split(/\s+/).filter(t => t.length >= 3);
-      if (tokens.length > 0) {
-        for (const p of PRODUCTS) {
-          const pname = normalize(p.name);
-          if (tokens.every(t => pname.includes(t))) { best = p; break; }
-        }
-      }
-    }
+
+    const best = searchProduct(cleaned, rawLine);
 
     if (best) {
-      // Conversion : si l'utilisateur n'a pas donné d'unité ET que le produit
-      // est tarifé au kg, on suppose qu'il parle en "unités" (ex: 4 courgettes)
       const avg = AVG_WEIGHT[best.id];
       let finalQty = qty;
       if (avg && !unitGiven) {
         finalQty = +(qty * avg).toFixed(3);
       } else if (!avg && !Number.isInteger(qty)) {
-        // produit sans avgWeight et qty décimale (rare) → on garde tel quel
+        // garde tel quel
       } else if (!avg) {
         finalQty = Math.max(1, Math.round(qty));
       }
       matched.push({ product: best, qty: finalQty });
     } else {
-      notFound.push({ text: rawLine, qty, suggestions: suggestProducts(rest, 3) });
+      notFound.push({ text: rawLine, qty, suggestions: suggestProducts(cleaned, 3) });
     }
   });
 
-  return { matched, notFound };
+  return { matched, notFound, ambiguous };
 }
 
 function optimizeBasket(basket) {
@@ -499,6 +657,7 @@ export default function App() {
   const [bulkInput, setBulkInput] = useState("");
   const [bulkNotFound, setBulkNotFound] = useState([]);
   const [bulkAddedCount, setBulkAddedCount] = useState(0);
+  const [bulkAmbiguous, setBulkAmbiguous] = useState([]);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [sharedSearch, setSharedSearch] = useState("");
   const [lang, setLang] = useState(() => {
@@ -614,8 +773,9 @@ export default function App() {
   };
 
   const importBulkList = () => {
-    const { matched, notFound } = parseBulkList(bulkInput);
+    const { matched, notFound, ambiguous } = parseBulkList(bulkInput);
     setBulkNotFound(notFound);
+    setBulkAmbiguous(ambiguous);
     setBulkAddedCount(matched.length);
     if (matched.length > 0) {
       setBasket(prev => {
@@ -631,28 +791,34 @@ export default function App() {
         return next;
       });
     }
-    // On vide le textarea pour éviter un double-import accidentel
     setBulkInput("");
-    // Si tout est trouvé, on ferme le modal et va sur Optimiser
-    if (notFound.length === 0 && matched.length > 0) {
+    if (notFound.length === 0 && ambiguous.length === 0 && matched.length > 0) {
       setShowBulkModal(false);
       setTab("result");
     }
-    // Sinon, on laisse le modal ouvert pour gérer les suggestions
   };
 
-  const addSuggestion = (product, qty, originalText) => {
+  const addSuggestion = (product, qty, originalText, isAmbiguous = false) => {
     setBasket(prev => {
       const idx = prev.findIndex(i => i.product.id === product.id);
       if (idx >= 0) return prev.map((i,k) => k===idx ? {...i, qty: i.qty + qty} : i);
       return [...prev, { product, qty, chosenChain: cheapestChain(product) }];
     });
     setBulkAddedCount(c => c + 1);
-    setBulkNotFound(prev => prev.filter(nf => nf.text !== originalText));
+    if (isAmbiguous) {
+      setBulkAmbiguous(prev => prev.filter(nf => nf.text !== originalText));
+    } else {
+      setBulkNotFound(prev => prev.filter(nf => nf.text !== originalText));
+    }
+  };
+
+  const dismissAmbiguous = (originalText) => {
+    setBulkAmbiguous(prev => prev.filter(nf => nf.text !== originalText));
   };
 
   const finishBulkImport = () => {
     setShowBulkModal(false);
+    setBulkAmbiguous([]);
     if (basket.length > 0 || bulkAddedCount > 0) setTab("result");
   };
 
@@ -744,6 +910,32 @@ export default function App() {
             {bulkAddedCount > 0 && (
               <div style={{background:"#E8F5E9",border:"1.5px solid #A8D878",borderRadius:12,padding:"12px 14px",marginTop:14,fontSize:13,color:"#2D5016",fontWeight:600}}>
                 ✅ {bulkAddedCount} produit{bulkAddedCount>1?"s":""} ajouté{bulkAddedCount>1?"s":""} au panier
+              </div>
+            )}
+            {bulkAmbiguous.length > 0 && (
+              <div style={{marginTop:14}}>
+                <div style={{fontWeight:700,color:"#1565C0",marginBottom:10,fontSize:13}}>
+                  ❓ {bulkAmbiguous.length} terme{bulkAmbiguous.length>1?"s":""} à préciser
+                </div>
+                {bulkAmbiguous.map((amb,i)=>(
+                  <div key={i} style={{background:"#E3F2FD",border:"1.5px solid #90CAF9",borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div style={{fontSize:14,color:"#1565C0",fontWeight:700}}>« {amb.cleaned} » — c'est quoi exactement ?</div>
+                      <button onClick={()=>dismissAmbiguous(amb.text)} style={{background:"none",border:"none",fontSize:18,color:"#999",cursor:"pointer",padding:0,lineHeight:1}}>×</button>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {amb.suggestions.map(sg => (
+                        <button
+                          key={sg.id}
+                          onClick={()=>addSuggestion(sg, amb.qty||1, amb.text, true)}
+                          style={{background:"#fff",border:"1.5px solid #1565C0",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#1565C0",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>
+                          <span>{sg.emoji}</span>
+                          <span>+ {sg.name_he ? sg.name_he.replace(/מבצע/g,"").trim() : sg.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {bulkNotFound.length > 0 && (
