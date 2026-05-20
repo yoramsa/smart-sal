@@ -469,15 +469,16 @@ function optimizeBasket(basket) {
     if (!unavailable) byChain[chain].total += price;
     if (unavailable) byChain[chain].unavailableCount += 1;
   });
+  const bestAvailable = (item, chain) => item.product.prices[chain] ?? Math.min(...Object.values(item.product.prices));
   const totalOptimized = Object.values(byChain).reduce((s,c)=>s+c.total,0);
   const totalPureCheapest = basket.reduce((s,i)=>s+(i.product.prices[cheapestChain(i.product)]??0)*(i.qty||1),0);
   const totalOverpay = totalOptimized - totalPureCheapest;
   const worstChain = CHAINS.reduce((a,b)=>{
-    const tA = basket.reduce((s,i)=>s+(i.product.prices[a]??0)*(i.qty||1),0);
-    const tB = basket.reduce((s,i)=>s+(i.product.prices[b]??0)*(i.qty||1),0);
+    const tA = basket.reduce((s,i)=>s+bestAvailable(i,a)*(i.qty||1),0);
+    const tB = basket.reduce((s,i)=>s+bestAvailable(i,b)*(i.qty||1),0);
     return tB>tA?b:a;
   });
-  const totalWorst = basket.reduce((s,i)=>s+(i.product.prices[worstChain]??0)*(i.qty||1),0);
+  const totalWorst = basket.reduce((s,i)=>s+bestAvailable(i,worstChain)*(i.qty||1),0);
   return { byChain, totalOptimized, totalWorst, savings: totalWorst-totalOptimized, totalOverpay };
 }
 
@@ -1344,16 +1345,18 @@ export default function App() {
                 <div style={{fontSize:11,color:"#999",marginBottom:12}}>Même panier, mêmes quantités</div>
 
                 {CHAINS.map(chain=>{
-                  const total = basket.reduce((s,i)=>s+(i.product.prices[chain]??0)*(i.qty||1),0);
+                  const bestPriceForItem = (item) => item.product.prices[chain] ?? Math.min(...Object.values(item.product.prices));
+                  const total = basket.reduce((s,i)=>s+bestPriceForItem(i)*(i.qty||1),0);
                   const unavailableCount = basket.filter(i=>i.product.prices[chain]===undefined).length;
                   const d = DELIVERY[chain];
                   const fee = deliveryMode ? (total>=d.freeAbove?0:d.fee) : 0;
                   const grandTotal = total + fee;
-                  const cheapestSingle = Math.min(...CHAINS.map(c=>basket.reduce((s,i)=>s+(i.product.prices[c]??0)*(i.qty||1),0)));
-                  const cheapestSingleChain = CHAINS.reduce((a,b)=>
-                    basket.reduce((s,i)=>s+(i.product.prices[b]??0)*(i.qty||1),0) <
-                    basket.reduce((s,i)=>s+(i.product.prices[a]??0)*(i.qty||1),0) ? b : a
-                  );
+                  const totalForChain = (c) => basket.reduce((s,i)=>{
+                    const best = (item) => item.product.prices[c] ?? Math.min(...Object.values(item.product.prices));
+                    return s+best(i)*(i.qty||1);
+                  },0);
+                  const cheapestSingle = Math.min(...CHAINS.map(c=>totalForChain(c)));
+                  const cheapestSingleChain = CHAINS.reduce((a,b)=>totalForChain(b)<totalForChain(a)?b:a);
                   const isCheapest = Math.abs(total - cheapestSingle) < 0.1;
                   const diff = total - cheapestSingle;
                   return (
@@ -1365,8 +1368,8 @@ export default function App() {
                           {isCheapest && <span style={{fontSize:9,background:"#4CAF50",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>LE MOINS CHER</span>}
                         </div>
                         {unavailableCount > 0 && (
-                          <div style={{fontSize:10,color:"#E53935",marginTop:2,marginLeft:14}}>
-                            ⚠️ {unavailableCount} produit{unavailableCount>1?"s":""} non vendu{unavailableCount>1?"s":""} ici
+                          <div style={{fontSize:10,color:"#888",marginTop:2,marginLeft:14}}>
+                            {unavailableCount} produit{unavailableCount>1?"s":""} au meilleur prix dispo
                           </div>
                         )}
                         {deliveryMode && <div style={{fontSize:10,color:"#999",marginTop:2,marginLeft:14}}>
@@ -1377,8 +1380,7 @@ export default function App() {
                         <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15,color:isCheapest?"#2D5016":CHAIN_COLORS[chain].bg}}>
                           {grandTotal.toFixed(1)}₪
                         </div>
-                        {unavailableCount > 0 && <div style={{fontSize:10,color:"#E53935"}}>total partiel</div>}
-                        {!isCheapest && unavailableCount===0 && <div style={{fontSize:11,color:"#E53935"}}>+{diff.toFixed(1)}₪ vs {cheapestSingleChain}</div>}
+                        {!isCheapest && <div style={{fontSize:11,color:"#E53935"}}>+{diff.toFixed(1)}₪ vs {cheapestSingleChain}</div>}
                       </div>
                     </div>
                   );
@@ -1394,11 +1396,12 @@ export default function App() {
                           const sub=result.byChain[c].total;
                           return s+(sub>=DELIVERY[c].freeAbove?0:DELIVERY[c].fee);
                         },0) : 0;
-                    const cheapestSingle = Math.min(...CHAINS.map(c=>basket.reduce((s,i)=>s+(i.product.prices[c]??0)*(i.qty||1),0)));
+                    const chainTotal = (c) => basket.reduce((s,i)=>s+(i.product.prices[c]??Math.min(...Object.values(i.product.prices)))*(i.qty||1),0);
+                    const cheapestSingle = Math.min(...CHAINS.map(c=>chainTotal(c)));
                     const saving = cheapestSingle - result.totalOptimized;
-                    const worstTotal = Math.max(...CHAINS.map(c=>basket.reduce((s,i)=>s+(i.product.prices[c]??0)*(i.qty||1),0)));
+                    const worstTotal = Math.max(...CHAINS.map(c=>chainTotal(c)));
                     const savingVsWorst = worstTotal - result.totalOptimized;
-                    const worstChainName = CHAINS.reduce((a,b)=>basket.reduce((s,i)=>s+(i.product.prices[b]??0)*(i.qty||1),0)>basket.reduce((s,i)=>s+(i.product.prices[a]??0)*(i.qty||1),0)?b:a);
+                    const worstChainName = CHAINS.reduce((a,b)=>chainTotal(b)>chainTotal(a)?b:a);
                     return (
                       <div style={{background:"#2D5016",borderRadius:14,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                         <div>
