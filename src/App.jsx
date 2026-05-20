@@ -1440,9 +1440,14 @@ export default function App() {
                           ⚠️ {result.byChain[chain].unavailableCount} produit{result.byChain[chain].unavailableCount>1?"s":""} non dispo — total partiel
                         </div>
                       )}
-                      {deliveryMode && (
+                      {deliveryMode && d.available && (
                         <div style={{fontSize:11,color:deliveryFee===0?"#43A047":"#999"}}>
                           {deliveryFee===0?"🎁 Livraison offerte":`+${deliveryFee}₪ livraison`}
+                        </div>
+                      )}
+                      {deliveryMode && !d.available && (
+                        <div style={{fontSize:11,color:"#E53935"}}>
+                          🚫 Retrait en magasin uniquement
                         </div>
                       )}
                     </div>
@@ -1564,8 +1569,11 @@ export default function App() {
                             {unavailableCount} produit{unavailableCount>1?"s":""} au meilleur prix dispo
                           </div>
                         )}
-                        {deliveryMode && <div style={{fontSize:10,color:"#999",marginTop:2,marginLeft:14}}>
+                        {deliveryMode && d.available && <div style={{fontSize:10,color:fee===0?"#43A047":"#999",marginTop:2,marginLeft:14}}>
                           {fee===0?"🎁 livraison offerte":`+${fee}₪ livraison`}
+                        </div>}
+                        {deliveryMode && !d.available && <div style={{fontSize:10,color:"#E53935",marginTop:2,marginLeft:14}}>
+                          🚫 retrait en magasin
                         </div>}
                       </div>
                       <div style={{textAlign:"right"}}>
@@ -1659,11 +1667,17 @@ export default function App() {
                       const url = window.location.origin + window.location.pathname + "?list=" + encoded;
                       const total = result.totalOptimized.toFixed(0);
                       const chains = CHAINS.filter(c=>result.byChain[c].items.length>0).join(", ");
-                      const msg = encodeURIComponent(
-                        `🛒 Ma liste de courses · ${total}₪\n` +
-                        `${basket.length} articles · ${chains}\n\n` +
-                        `Ouvre le lien, coche les articles au fur et à mesure :\n${url}`
-                      );
+                      const msg = lang === "he"
+                        ? encodeURIComponent(
+                            `🛒 רשימת הקניות שלי · ${total}₪\n` +
+                            `${basket.length} פריטים · ${chains}\n\n` +
+                            `פתח את הקישור וסמן פריטים בזמן הקנייה :\n${url}`
+                          )
+                        : encodeURIComponent(
+                            `🛒 Ma liste de courses · ${total}₪\n` +
+                            `${basket.length} articles · ${chains}\n\n` +
+                            `Ouvre le lien, coche les articles au fur et à mesure :\n${url}`
+                          );
                       window.open(`https://wa.me/?text=${msg}`, "_blank");
                     }}
                       style={{width:"100%",padding:"16px",background:"#25D366",color:"#fff",border:"none",borderRadius:14,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Syne',sans-serif",boxShadow:"0 6px 24px rgba(37,211,102,0.35)",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
@@ -1809,7 +1823,6 @@ export default function App() {
                             <div style={{fontSize:14,fontWeight:500,color:"#222",textDecoration:isDone?"line-through":"none",direction:lang==="he"?"rtl":"ltr"}}>
                               {item.product.emoji} {productName(item.product)}
                             </div>
-                            {productSubName(item.product) && <div style={{fontSize:10,color:"#AAA",direction:hasHebrew(productSubName(item.product))?"rtl":"ltr",lineHeight:1.2}}>{productSubName(item.product)}</div>}
                           </div>
                           <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,flexShrink:0,background:"#F5F0E8",borderRadius:8,padding:"2px 4px"}}>
                             <button onClick={()=>changeQty(item.product.id,-1)} disabled={(displayCount(item)??item.qty)<=1}
