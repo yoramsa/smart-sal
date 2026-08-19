@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "fetch": "node scripts/fetch-prices.mjs",
     "build-products": "node scripts/build-products.mjs",
-    "prices": "node scripts/fetch-prices.mjs && node scripts/build-products.mjs"
+    "prices": "node scripts/fetch-prices.mjs && node scripts/build-products.mjs",
+    "sync:stores": "node scripts/sync-supabase.mjs --mode=stores",
+    "sync:full": "node scripts/sync-supabase.mjs --mode=full",
+    "sync:delta": "node scripts/sync-supabase.mjs --mode=delta",
+    "test": "node scripts/test-parse.mjs && node scripts/test-sync.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
