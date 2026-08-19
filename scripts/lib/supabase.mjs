@@ -61,6 +61,14 @@ export async function patch(table, query, body) {
   if (!res.ok) throw new Error(`patch ${table} → ${res.status} ${(await res.text()).slice(0, 300)}`);
 }
 
+export async function deleteRow(table, query) {
+  const res = await fetch(`${URL}/rest/v1/${table}?${query}`, {
+    method: 'DELETE',
+    headers: headers({ Prefer: 'return=minimal' }),
+  });
+  if (!res.ok) throw new Error(`delete ${table} → ${res.status} ${(await res.text()).slice(0, 300)}`);
+}
+
 export async function rpcCount(table, query = '') {
   const res = await fetch(`${URL}/rest/v1/${table}?${query ? query + '&' : ''}select=*`, {
     method: 'HEAD',

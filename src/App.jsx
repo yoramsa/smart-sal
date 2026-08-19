@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import productsJson from "./products.json";
+import { compareBasket } from "./compare.js";
 
 // --- TRADUCTIONS FR / HE ---
 const T = {
@@ -834,6 +835,7 @@ export default function App() {
   };
 
   const result = useMemo(() => basket.length > 0 ? optimizeBasket(basket) : null, [basket]);
+  const comparison = useMemo(() => basket.length > 0 ? compareBasket(basket, CHAINS) : null, [basket]);
 
   return (
     <div style={{...S.root, direction: lang === "he" ? "rtl" : "ltr"}} className="app-root">
@@ -1539,34 +1541,45 @@ export default function App() {
                 <div style={{fontFamily:"'Syne',sans-serif",fontSize:13,fontWeight:800,color:"#333",marginBottom:4}}>
                   Si tu achetais TOUT dans un seul supermarché :
                 </div>
-                <div style={{fontSize:11,color:"#999",marginBottom:12}}>Même panier, mêmes quantités</div>
+                <div style={{fontSize:11,color:"#999",marginBottom:8}}>Même panier, mêmes quantités</div>
 
-                {CHAINS.map(chain=>{
-                  const bestPriceForItem = (item) => item.product.prices[chain] ?? Math.min(...Object.values(item.product.prices));
-                  const total = basket.reduce((s,i)=>s+bestPriceForItem(i)*(i.qty||1),0);
-                  const unavailableCount = basket.filter(i=>i.product.prices[chain]===undefined).length;
+                {comparison && (
+                  <div style={{fontSize:11,color:"#5B3AA6",background:"#F3EEFB",borderRadius:8,padding:"7px 10px",marginBottom:12,lineHeight:1.5}}>
+                    {comparison.intersectionCount > 0 ? (
+                      <>Comparé sur <strong>{comparison.intersectionCount}</strong> article{comparison.intersectionCount>1?"s":""} commun{comparison.intersectionCount>1?"s":""} aux {CHAINS.length} enseignes</>
+                    ) : (
+                      <>⚠️ Aucun article commun aux {CHAINS.length} enseignes — chiffres non comparables</>
+                    )}
+                    {comparison.totalComparable > comparison.intersectionCount && <> · {comparison.totalComparable - comparison.intersectionCount} pas dispo partout</>}
+                    {comparison.excludedWeighted.length > 0 && <> · {comparison.excludedWeighted.length} au poids exclu{comparison.excludedWeighted.length>1?"s":""}</>}
+                  </div>
+                )}
+
+                {comparison && CHAINS.map(chain=>{
+                  const pc = comparison.perChain[chain];
+                  const usable = comparison.intersectionCount > 0;
+                  const base = usable ? pc.restrictedTotal : pc.fullTotal;
                   const d = DELIVERY[chain];
-                  const fee = deliveryMode ? (total>=d.freeAbove?0:d.fee) : 0;
-                  const grandTotal = total + fee;
-                  const totalForChain = (c) => basket.reduce((s,i)=>{
-                    const best = (item) => item.product.prices[c] ?? Math.min(...Object.values(item.product.prices));
-                    return s+best(i)*(i.qty||1);
-                  },0);
-                  const cheapestSingle = Math.min(...CHAINS.map(c=>totalForChain(c)));
-                  const cheapestSingleChain = CHAINS.reduce((a,b)=>totalForChain(b)<totalForChain(a)?b:a);
-                  const isCheapest = Math.abs(total - cheapestSingle) < 0.1;
-                  const diff = total - cheapestSingle;
+                  const fee = deliveryMode ? (base>=d.freeAbove?0:d.fee) : 0;
+                  const grandTotal = base + fee;
+                  const isCheapest = usable && chain === comparison.cheapestChain;
+                  const diff = usable ? pc.restrictedTotal - comparison.cheapestTotal : 0;
                   return (
-                    <div key={chain} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"10px 12px",borderRadius:12,background:isCheapest?"#E8F5E9":CHAIN_COLORS[chain].light,border:isCheapest?"1.5px solid #4CAF50":"1.5px solid transparent"}}>
+                    <div key={chain} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"10px 12px",borderRadius:12,background:isCheapest?"#F3EEFB":CHAIN_COLORS[chain].light,border:isCheapest?"1.5px solid #7C3AED":"1.5px solid transparent"}}>
                       <div>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <div style={{width:8,height:8,borderRadius:"50%",background:CHAIN_COLORS[chain].bg,flexShrink:0}}/>
                           <span style={{fontSize:13,fontWeight:600}}>{chain}</span>
-                          {isCheapest && <span style={{fontSize:9,background:"#4CAF50",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>LE MOINS CHER</span>}
+                          {isCheapest && <span style={{fontSize:9,background:"#7C3AED",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>LE MOINS CHER</span>}
                         </div>
-                        {unavailableCount > 0 && (
+                        {pc.missingCount > 0 && (
+                          <div style={{fontSize:10,color:"#E53935",marginTop:2,marginLeft:14}}>
+                            {pc.missingCount} article{pc.missingCount>1?"s":""} manquant{pc.missingCount>1?"s":""} — non compté{pc.missingCount>1?"s":""}
+                          </div>
+                        )}
+                        {usable && pc.fullTotal > pc.restrictedTotal && (
                           <div style={{fontSize:10,color:"#888",marginTop:2,marginLeft:14}}>
-                            {unavailableCount} produit{unavailableCount>1?"s":""} au meilleur prix dispo
+                            Panier complet ici : {pc.fullTotal.toFixed(1)}₪ ({pc.availableCount} dispo)
                           </div>
                         )}
                         {deliveryMode && d.available && <div style={{fontSize:10,color:fee===0?"#43A047":"#999",marginTop:2,marginLeft:14}}>
@@ -1577,10 +1590,10 @@ export default function App() {
                         </div>}
                       </div>
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15,color:isCheapest?"#2D5016":CHAIN_COLORS[chain].bg}}>
+                        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15,color:isCheapest?"#5B3AA6":CHAIN_COLORS[chain].bg}}>
                           {grandTotal.toFixed(1)}₪
                         </div>
-                        {!isCheapest && <div style={{fontSize:11,color:"#E53935"}}>+{diff.toFixed(1)}₪ vs {cheapestSingleChain}</div>}
+                        {usable && !isCheapest && diff > 0.05 && <div style={{fontSize:11,color:"#E53935"}}>+{diff.toFixed(1)}₪ vs {comparison.cheapestChain}</div>}
                       </div>
                     </div>
                   );
