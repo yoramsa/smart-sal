@@ -14,7 +14,8 @@
     "sync:full": "node scripts/sync-supabase.mjs --mode=full",
     "sync:delta": "node scripts/sync-supabase.mjs --mode=delta",
     "equivalents": "node scripts/equivalents.mjs",
-    "test": "node scripts/test-parse.mjs && node scripts/test-sync.mjs && node scripts/test-compare.mjs"
+    "translate": "node scripts/translate.mjs",
+    "test": "node scripts/test-parse.mjs && node scripts/test-sync.mjs && node scripts/test-compare.mjs && node scripts/test-translate.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
