@@ -1,6 +1,9 @@
 name: Sync prices
 
 on:
+  push:
+    branches:
+      - claude/new-session-nlzv9a
   schedule:
     - cron: '0 22 * * *'
     - cron: '0 6 * * *'
@@ -32,6 +35,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "mode=stores" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
           else
