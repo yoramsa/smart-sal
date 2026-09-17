@@ -1,0 +1,47 @@
+name: Sync prices
+
+on:
+  schedule:
+    - cron: '0 22 * * *'
+    - cron: '0 6 * * *'
+    - cron: '0 10 * * *'
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'stores | full | delta'
+        required: false
+        default: 'delta'
+
+concurrency:
+  group: sync-prices
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=delta" >> "$GITHUB_OUTPUT"
+          fi
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "full" ]; then
+            node scripts/sync-supabase.mjs --mode=stores
+          fi
+          node scripts/sync-supabase.mjs --mode=${{ steps.mode.outputs.mode }}
