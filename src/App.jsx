@@ -337,6 +337,15 @@ function cheapestChain(product) {
   return Object.entries(product.prices).sort((a,b)=>a[1]-b[1])[0][0];
 }
 
+function bestPrice(product) {
+  const vals = Object.values(product.prices || {}).filter(v => typeof v === "number");
+  return vals.length ? Math.min(...vals) : Infinity;
+}
+function cheapestOfProducts(list) {
+  if (!list || list.length === 0) return null;
+  return list.reduce((a, b) => (bestPrice(b) < bestPrice(a) ? b : a), list[0]);
+}
+
 // Similarité bigrammes (Dice coefficient) — utilisée pour proposer des suggestions
 function _bigrams(s) {
   const out = new Set();
@@ -432,6 +441,8 @@ const FR_TO_HE = {
 
 // Termes trop vagues qui nécessitent une précision de l'utilisateur
 const AMBIGUOUS_TERMS = {
+  "pate": { label: "Pâtes — quelle sorte / marque ?", cat: null },
+  "pates": { label: "Pâtes — quelle sorte / marque ?", cat: null },
   "pack": { label: "Pack / שישייה", cat: "🧃 Boissons" },
   "packs": { label: "Pack / שישייה", cat: "🧃 Boissons" },
   "שישייה": { label: "שישייה / Pack", cat: "🧃 Boissons" },
@@ -936,6 +947,18 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                    {amb.suggestions.length > 1 && (()=>{
+                      const cheap = cheapestOfProducts(amb.suggestions);
+                      if (!cheap) return null;
+                      return (
+                        <button
+                          onClick={()=>addSuggestion(cheap, amb.qty||1, amb.text, true)}
+                          style={{marginTop:8,background:"#7C3AED",color:"#fff",border:"none",borderRadius:20,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+                          <span>🏆</span>
+                          <span>Le moins cher : {productName(cheap)} · {bestPrice(cheap).toFixed(1)}₪</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -962,6 +985,18 @@ export default function App() {
                             </button>
                           ))}
                         </div>
+                        {nf.suggestions.length > 1 && (()=>{
+                          const cheap = cheapestOfProducts(nf.suggestions);
+                          if (!cheap) return null;
+                          return (
+                            <button
+                              onClick={()=>addSuggestion(cheap, nf.qty||1, nf.text)}
+                              style={{marginTop:8,background:"#7C3AED",color:"#fff",border:"none",borderRadius:20,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+                              <span>🏆</span>
+                              <span>Le moins cher : {productName(cheap)} · {bestPrice(cheap).toFixed(1)}₪</span>
+                            </button>
+                          );
+                        })()}
                       </>
                     ) : (
                       <div style={{fontSize:11,color:"#888",fontStyle:"italic"}}>Aucune suggestion trouvée — cherche dans l'onglet Produits.</div>
