@@ -36,7 +36,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "mode=translate" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
           else
@@ -45,7 +45,12 @@ jobs:
       - env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "translate" ]; then
+            node scripts/translate.mjs
+            exit 0
+          fi
           if [ "${{ steps.mode.outputs.mode }}" = "full" ]; then
             node scripts/sync-supabase.mjs --mode=stores
           fi
