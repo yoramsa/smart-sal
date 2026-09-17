@@ -34,11 +34,17 @@ async function finishRun(run, body) {
   await patch('sync_runs', `id=eq.${run.id}`, { finished_at: new Date().toISOString(), ...body });
 }
 
+function kindAccepted(k, wantKind) {
+  if (wantKind === 'StoresFull') return k === 'StoresFull' || k === 'Stores';
+  return k === wantKind;
+}
+
 async function chainFileSource(chain, session, wantKind) {
   if (chain.portal === 'publishedprices') {
     const term = wantKind === 'StoresFull' ? 'Stores' : (wantKind === 'Price' ? 'Price' : 'PriceFull');
     const names = await listPublishedPricesFiles(session, term);
-    const filtered = names.filter(n => parseFileName(n).kind === wantKind);
+    const filtered = names.filter(n => kindAccepted(parseFileName(n).kind, wantKind));
+    console.log(`  [${chain.label}] listing "${term}": ${names.length} fichiers, ${filtered.length} retenus. Exemples: ${names.slice(0, 5).join(' | ') || '(aucun)'}`);
     return { names: filtered, download: (name) => downloadPublished(session, name) };
   }
   const urls = await listShufersalFiles(wantKind);
@@ -47,9 +53,10 @@ async function chainFileSource(chain, session, wantKind) {
   for (const u of urls) {
     const m = u.match(/([^/?]+\.(?:gz|xml))/i);
     const fname = m ? m[1] : u;
-    if (parseFileName(fname).kind !== wantKind) continue;
+    if (!kindAccepted(parseFileName(fname).kind, wantKind)) continue;
     if (!map.has(fname)) { map.set(fname, u); names.push(fname); }
   }
+  console.log(`  [${chain.label}] listing Shufersal: ${urls.length} liens, ${names.length} retenus. Exemples: ${urls.slice(0, 3).map(u => u.replace(/^https?:\/\//, '').slice(0, 90)).join(' | ') || '(aucun)'}`);
   return { names, download: (name) => downloadUrl(map.get(name)) };
 }
 
