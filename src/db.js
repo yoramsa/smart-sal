@@ -22,7 +22,7 @@ async function getJson(path) {
 
 export async function getTrackedStores() {
   if (!dbReady) return [];
-  return getJson('stores?is_tracked=eq.true&select=id,chain,name,city,store_id&order=chain');
+  return getJson('stores?is_tracked=eq.true&select=id,chain,name,city,address,store_id&order=chain,name');
 }
 
 function displayName(row) {
@@ -76,33 +76,37 @@ export async function getDefaultProducts(limit = 40) {
   return rows.map(mapProduct);
 }
 
-export async function getPricesForEans(eans) {
+export async function getPricesForEans(eans, storeIds) {
   if (!dbReady || eans.length === 0) return {};
   const list = eans.map((e) => `"${e}"`).join(',');
-  const select = 'select=ean,price,unit_price,is_promo,collected_at,stores!inner(chain,is_tracked)';
-  const rows = await getJson(`prices?ean=in.(${list})&stores.is_tracked=eq.true&${select}`);
+  const filter = (storeIds && storeIds.length)
+    ? `store_id=in.(${storeIds.join(',')})`
+    : 'stores.is_tracked=eq.true';
+  const select = 'select=ean,price,unit_price,is_promo,collected_at,stores!inner(chain,name)';
+  const rows = await getJson(`prices?ean=in.(${list})&${filter}&${select}`);
   const byEan = {};
   for (const r of rows) {
     const chain = r.stores?.chain;
     if (!chain) continue;
-    if (!byEan[r.ean]) byEan[r.ean] = { prices: {}, unitPrices: {}, promo: {}, collectedAt: {} };
+    if (!byEan[r.ean]) byEan[r.ean] = { prices: {}, unitPrices: {}, promo: {}, collectedAt: {}, storeName: {} };
     const cur = byEan[r.ean].prices[chain];
     if (cur == null || r.price < cur) {
       byEan[r.ean].prices[chain] = r.price;
       if (r.unit_price != null) byEan[r.ean].unitPrices[chain] = r.unit_price;
       byEan[r.ean].promo[chain] = Boolean(r.is_promo);
       byEan[r.ean].collectedAt[chain] = r.collected_at;
+      byEan[r.ean].storeName[chain] = r.stores?.name || '';
     }
   }
   return byEan;
 }
 
-export async function attachPrices(products) {
+export async function attachPrices(products, storeIds) {
   const eans = products.map((p) => p.ean).filter(Boolean);
-  const priced = await getPricesForEans(eans);
+  const priced = await getPricesForEans(eans, storeIds);
   return products.map((p) => {
     const entry = priced[p.ean];
     if (!entry) return p;
-    return { ...p, prices: entry.prices, unitPrices: entry.unitPrices, promo: entry.promo, collectedAt: entry.collectedAt };
+    return { ...p, prices: entry.prices, unitPrices: entry.unitPrices, promo: entry.promo, collectedAt: entry.collectedAt, storeName: entry.storeName };
   });
 }
