@@ -354,15 +354,6 @@ function cheapestOfProducts(list) {
   return list.reduce((a, b) => (bestPrice(b) < bestPrice(a) ? b : a), list[0]);
 }
 
-function bestPrice(product) {
-  const vals = Object.values(product.prices || {}).filter(v => typeof v === "number");
-  return vals.length ? Math.min(...vals) : Infinity;
-}
-function cheapestOfProducts(list) {
-  if (!list || list.length === 0) return null;
-  return list.reduce((a, b) => (bestPrice(b) < bestPrice(a) ? b : a), list[0]);
-}
-
 // Similarité bigrammes (Dice coefficient) — utilisée pour proposer des suggestions
 function _bigrams(s) {
   const out = new Set();
