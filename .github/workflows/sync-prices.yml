@@ -1,9 +1,6 @@
 name: Sync prices
 
 on:
-  push:
-    branches:
-      - claude/new-session-nlzv9a
   schedule:
     - cron: '0 22 * * *'
     - cron: '0 6 * * *'
@@ -12,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'stores | full | delta'
+        description: 'stores | full | delta | translate'
         required: false
         default: 'delta'
 
@@ -35,8 +32,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "mode=translate" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
           else
