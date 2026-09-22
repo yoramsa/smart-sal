@@ -1,5 +1,8 @@
-const URL = import.meta.env.VITE_SUPABASE_URL;
-const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const DEFAULT_URL = 'https://wdjrcoyopoytokqjpqca.supabase.co';
+const DEFAULT_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkanJjb3lvcG95dG9rcWpwcWNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMjYyNDEsImV4cCI6MjEwMjYwMjI0MX0.okYYjQopxb0SAVETN1Cs_Kx_lI42XKywlIwDruomOV4';
+
+const URL = import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL;
+const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON;
 
 export const dbReady = Boolean(URL && ANON);
 
@@ -56,6 +59,20 @@ export async function searchProducts(query, limit = 30) {
   const or = `or=(name_fr.ilike.${pattern},name_he.ilike.${pattern},manufacturer.ilike.${pattern})`;
   const select = 'select=ean,name_fr,name_he,manufacturer,category,emoji,unit,is_weighted';
   const rows = await getJson(`products?${or}&${select}&limit=${limit}`);
+  return rows.map(mapProduct);
+}
+
+export async function getByCategory(cat, limit = 40) {
+  if (!dbReady) return [];
+  const select = 'select=ean,name_fr,name_he,manufacturer,category,emoji,unit,is_weighted';
+  const rows = await getJson(`products?category=eq.${encodeURIComponent(cat)}&${select}&order=name_fr&limit=${limit}`);
+  return rows.map(mapProduct);
+}
+
+export async function getDefaultProducts(limit = 40) {
+  if (!dbReady) return [];
+  const select = 'select=ean,name_fr,name_he,manufacturer,category,emoji,unit,is_weighted';
+  const rows = await getJson(`products?name_fr=not.is.null&${select}&order=category&limit=${limit}`);
   return rows.map(mapProduct);
 }
 

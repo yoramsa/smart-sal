@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import productsJson from "./products.json";
 import { compareBasket } from "./compare.js";
+import { dbReady, searchProducts, getDefaultProducts, getByCategory, attachPrices } from "./db.js";
+
+const DB_CATS = [
+  "🥬 Fruits & Légumes", "🍞 Boulangerie", "🥛 Crémerie & Œufs", "🥩 Boucherie & Poisson",
+  "🌾 Épicerie sèche", "🥤 Boissons", "🍿 Snacks & Sucré", "🧹 Nettoyage & Hygiène", "🛒 Autres",
+];
 
 // --- TRADUCTIONS FR / HE ---
 const T = {
@@ -334,7 +340,9 @@ function normalize(s) {
 }
 
 function cheapestChain(product) {
-  return Object.entries(product.prices).sort((a,b)=>a[1]-b[1])[0][0];
+  const entries = Object.entries(product.prices || {});
+  if (entries.length === 0) return null;
+  return entries.sort((a,b)=>a[1]-b[1])[0][0];
 }
 
 function bestPrice(product) {
@@ -711,7 +719,32 @@ export default function App() {
     return stripPromo(p.name_he || "") || null;
   };
 
-  const cats = ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
+  const cats = dbReady ? ["Tous", ...DB_CATS] : ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
+
+  const [dbProducts, setDbProducts] = useState([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  useEffect(() => {
+    if (!dbReady) return;
+    let cancelled = false;
+    const run = async () => {
+      setDbLoading(true);
+      try {
+        let rows;
+        if (search.trim()) rows = await searchProducts(search.trim(), 40);
+        else if (selectedCat !== "Tous") rows = await getByCategory(selectedCat, 40);
+        else rows = await getDefaultProducts(40);
+        if (search.trim() && selectedCat !== "Tous") rows = rows.filter(p => p.cat === selectedCat);
+        const withPrices = await attachPrices(rows);
+        if (!cancelled) setDbProducts(withPrices.filter(p => Object.keys(p.prices).length > 0));
+      } catch {
+        if (!cancelled) setDbProducts([]);
+      } finally {
+        if (!cancelled) setDbLoading(false);
+      }
+    };
+    const timer = setTimeout(run, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [search, selectedCat]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -740,6 +773,8 @@ export default function App() {
     const matchCat = selectedCat==="Tous" || p.cat===selectedCat;
     return matchSearch && matchCat;
   });
+
+  const displaySource = dbReady ? dbProducts : filtered;
 
   const addToBasket = (product) => {
     setShowQty(product);
@@ -1149,7 +1184,7 @@ export default function App() {
               const families = {};
               const displayList = [];
               // Tri : promo d'abord, puis le reste
-              const sorted = [...filtered].sort((a,b) => {
+              const sorted = [...displaySource].sort((a,b) => {
                 const pa = isPromo(a) ? 0 : 1;
                 const pb = isPromo(b) ? 0 : 1;
                 return pa - pb;
@@ -1239,7 +1274,7 @@ export default function App() {
           </div>
           {/* Pagination — bouton "Charger plus" */}
           {(() => {
-            const total = filtered.length;
+            const total = displaySource.length;
             if (total <= displayLimit) return null;
             const shown = Math.min(displayLimit, total);
             return (
