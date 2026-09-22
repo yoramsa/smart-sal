@@ -1,9 +1,6 @@
 name: Sync prices
 
 on:
-  push:
-    branches:
-      - claude/new-session-nlzv9a
   schedule:
     - cron: '0 22 * * *'
     - cron: '0 6 * * *'
@@ -35,8 +32,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "mode=dbtest" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "0 22 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
           else
@@ -46,13 +41,10 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: claude-haiku-4-5
         run: |
-          if [ "${{ steps.mode.outputs.mode }}" = "dbtest" ]; then
-            node scripts/test-db.mjs
-            exit 0
-          fi
           if [ "${{ steps.mode.outputs.mode }}" = "translate" ]; then
-            node scripts/translate.mjs
+            node scripts/translate.mjs --llm
             exit 0
           fi
           if [ "${{ steps.mode.outputs.mode }}" = "full" ]; then
