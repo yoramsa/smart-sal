@@ -112,9 +112,9 @@ export async function downloadPublished(session, filename) {
   return decompress(await res.arrayBuffer(), filename);
 }
 
-export async function listShufersalFiles(category) {
+export async function listShufersalFiles(category, storeID = 0) {
   const catID = SHUFERSAL_CAT[category] ?? 0;
-  const url = `${SHUFERSAL_BASE}/FileObject/UpdateCategory?catID=${catID}&storeID=0`;
+  const url = `${SHUFERSAL_BASE}/FileObject/UpdateCategory?catID=${catID}&storeID=${storeID}`;
   const res = await fetch(url, { headers: { 'User-Agent': UA } });
   if (!res.ok) throw new Error(`Listing Shufersal ${res.status}`);
   const html = await res.text();
@@ -131,9 +131,22 @@ export async function downloadUrl(url) {
 }
 
 function decompress(arrayBuffer, hint) {
-  const buf = Buffer.from(arrayBuffer);
-  if (/\.gz(\?|$)/i.test(hint) || (buf[0] === 0x1f && buf[1] === 0x8b)) {
-    return gunzipSync(buf).toString('utf-8');
+  let buf = Buffer.from(arrayBuffer);
+  const head = buf.subarray(0, 8).toString('hex');
+  const name = String(hint).split('/').pop().slice(0, 60);
+  console.log(`  download ${name}: ${buf.length} octets, tête=${head}`);
+
+  if (buf[0] === 0x1f && buf[1] === 0x8b) {
+    buf = gunzipSync(buf);
+  }
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return buf.subarray(3).toString('utf-8');
+  }
+  if (buf[0] === 0xff && buf[1] === 0xfe) {
+    return buf.subarray(2).toString('utf-16le');
+  }
+  if (buf[0] === 0xfe && buf[1] === 0xff) {
+    return buf.subarray(2).swap16().toString('utf-16le');
   }
   return buf.toString('utf-8');
 }

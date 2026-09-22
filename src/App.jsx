@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import productsJson from "./products.json";
 import { compareBasket } from "./compare.js";
+import { dbReady, searchProducts, getDefaultProducts, getByCategory, attachPrices, getTrackedStores } from "./db.js";
+
+const DB_CATS = [
+  "🥬 Fruits & Légumes", "🍞 Boulangerie", "🥛 Crémerie & Œufs", "🥩 Boucherie & Poisson",
+  "🌾 Épicerie sèche", "🥤 Boissons", "🍿 Snacks & Sucré", "🧹 Nettoyage & Hygiène", "🛒 Autres",
+];
 
 // --- TRADUCTIONS FR / HE ---
 const T = {
@@ -334,7 +340,9 @@ function normalize(s) {
 }
 
 function cheapestChain(product) {
-  return Object.entries(product.prices).sort((a,b)=>a[1]-b[1])[0][0];
+  const entries = Object.entries(product.prices || {});
+  if (entries.length === 0) return null;
+  return entries.sort((a,b)=>a[1]-b[1])[0][0];
 }
 
 function bestPrice(product) {
@@ -711,7 +719,53 @@ export default function App() {
     return stripPromo(p.name_he || "") || null;
   };
 
-  const cats = ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
+  const cats = dbReady ? ["Tous", ...DB_CATS] : ["Tous", ...new Set(PRODUCTS.map(p=>p.cat))];
+
+  const [dbProducts, setDbProducts] = useState([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [scopeStores, setScopeStores] = useState([]);
+  const [selectedStores, setSelectedStores] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("smartsal_stores") || "{}"); } catch { return {}; }
+  });
+  const [showStorePicker, setShowStorePicker] = useState(false);
+  useEffect(() => { try { localStorage.setItem("smartsal_stores", JSON.stringify(selectedStores)); } catch {} }, [selectedStores]);
+  useEffect(() => {
+    if (!dbReady) return;
+    getTrackedStores().then(rows => {
+      setScopeStores(rows);
+      setSelectedStores(prev => {
+        const next = { ...prev };
+        const chainsPresent = new Set(rows.map(s => s.chain));
+        for (const k of Object.keys(next)) if (!chainsPresent.has(k)) delete next[k];
+        for (const s of rows) if (next[s.chain] == null) next[s.chain] = s.id;
+        return next;
+      });
+    }).catch(() => {});
+  }, []);
+  const selectedStoreIds = useMemo(() => Object.values(selectedStores).filter(Boolean), [selectedStores]);
+
+  useEffect(() => {
+    if (!dbReady) return;
+    let cancelled = false;
+    const run = async () => {
+      setDbLoading(true);
+      try {
+        let rows;
+        if (search.trim()) rows = await searchProducts(search.trim(), 40);
+        else if (selectedCat !== "Tous") rows = await getByCategory(selectedCat, 40);
+        else rows = await getDefaultProducts(40);
+        if (search.trim() && selectedCat !== "Tous") rows = rows.filter(p => p.cat === selectedCat);
+        const withPrices = await attachPrices(rows, selectedStoreIds);
+        if (!cancelled) setDbProducts(withPrices.filter(p => Object.keys(p.prices).length > 0));
+      } catch {
+        if (!cancelled) setDbProducts([]);
+      } finally {
+        if (!cancelled) setDbLoading(false);
+      }
+    };
+    const timer = setTimeout(run, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [search, selectedCat, selectedStoreIds]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -740,6 +794,8 @@ export default function App() {
     const matchCat = selectedCat==="Tous" || p.cat===selectedCat;
     return matchSearch && matchCat;
   });
+
+  const displaySource = dbReady ? dbProducts : filtered;
 
   const addToBasket = (product) => {
     setShowQty(product);
@@ -1016,6 +1072,56 @@ export default function App() {
         </div>
       )}
 
+      {/* STORE PICKER MODAL */}
+      {showStorePicker && (
+        <div className="overlay" style={S.overlay} onClick={()=>setShowStorePicker(false)}>
+          <div className="slide-in" style={{...S.modal,maxWidth:520}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:"#5B3AA6"}}>🏪 Mes magasins</div>
+              <button onClick={()=>setShowStorePicker(false)} style={{background:"none",border:"none",fontSize:24,color:"#999",cursor:"pointer",padding:0,lineHeight:1}}>×</button>
+            </div>
+            <div style={{fontSize:13,color:"#666",lineHeight:1.5,marginBottom:14}}>
+              Choisis ton magasin pour chaque enseigne. La comparaison se fera sur <strong>tes magasins</strong>.
+            </div>
+            {CHAINS.map(chain=>{
+              const list = scopeStores.filter(s=>s.chain===chain);
+              if (list.length===0) return null;
+              return (
+                <div key={chain} style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                    <div style={{width:9,height:9,borderRadius:"50%",background:CHAIN_COLORS[chain].bg}}/>
+                    <span style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:14}}>{chain}</span>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {list.map(s=>{
+                      const active = selectedStores[chain]===s.id;
+                      return (
+                        <div key={s.id}
+                          onClick={()=>setSelectedStores(prev=>({...prev,[chain]:s.id}))}
+                          style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,cursor:"pointer",direction:"rtl",
+                            background:active?CHAIN_COLORS[chain].light:"#FAFAF8",
+                            border:active?`2px solid ${CHAIN_COLORS[chain].bg}`:"2px solid transparent"}}>
+                          <div style={{width:18,height:18,borderRadius:"50%",border:`2px solid ${CHAIN_COLORS[chain].bg}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,background:active?CHAIN_COLORS[chain].bg:"transparent"}}>
+                            {active&&<div style={{width:7,height:7,borderRadius:"50%",background:"#fff"}}/>}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:600,color:"#222",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
+                            {s.address && <div style={{fontSize:11,color:"#999",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.address}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <button onClick={()=>setShowStorePicker(false)} style={{...S.addBtn,marginTop:6,background:"#7C3AED"}}>
+              ✓ Valider mes magasins
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* QTY + CHAIN MODAL */}
       {showQty && (
         <div className="overlay" style={S.overlay} onClick={()=>setShowQty(null)}>
@@ -1127,6 +1233,13 @@ export default function App() {
       {/* SEARCH TAB */}
       {tab==="search" && (
         <div style={S.content} className="tab-content">
+          {dbReady && scopeStores.length > 0 && (
+            <button
+              onClick={()=>setShowStorePicker(true)}
+              style={{width:"100%",padding:"11px 14px",background:"#F3EEFB",border:"1.5px solid #7C3AED",borderRadius:12,fontSize:13,fontWeight:700,color:"#5B3AA6",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              🏪 Mes magasins — {CHAINS.filter(c=>selectedStores[c]).length}/{CHAINS.filter(c=>scopeStores.some(s=>s.chain===c)).length} choisis
+            </button>
+          )}
           <button
             onClick={()=>{ setBulkAddedCount(0); setBulkNotFound([]); setShowBulkModal(true); }}
             style={{width:"100%",padding:"12px 14px",background:"#fff",border:"1.5px dashed #2D5016",borderRadius:12,fontSize:13,fontWeight:700,color:"#2D5016",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -1149,7 +1262,7 @@ export default function App() {
               const families = {};
               const displayList = [];
               // Tri : promo d'abord, puis le reste
-              const sorted = [...filtered].sort((a,b) => {
+              const sorted = [...displaySource].sort((a,b) => {
                 const pa = isPromo(a) ? 0 : 1;
                 const pb = isPromo(b) ? 0 : 1;
                 return pa - pb;
@@ -1239,7 +1352,7 @@ export default function App() {
           </div>
           {/* Pagination — bouton "Charger plus" */}
           {(() => {
-            const total = filtered.length;
+            const total = displaySource.length;
             if (total <= displayLimit) return null;
             const shown = Math.min(displayLimit, total);
             return (
