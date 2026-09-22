@@ -105,15 +105,38 @@ async function syncPrices(chain, mode) {
   }
   const session = chain.portal === 'publishedprices' ? await loginPublishedPrices(chain.username) : null;
   const wantKind = mode === 'delta' ? 'Price' : 'PriceFull';
-  const src = await chainFileSource(chain, session, wantKind);
-  console.log(`  [${chain.label}] ${src.names.length} fichiers ${wantKind}, ${tracked.length} magasins suivis`);
+
+  let prefetched = null;
+  if (chain.portal === 'publishedprices') {
+    prefetched = await chainFileSource(chain, session, wantKind);
+    console.log(`  [${chain.label}] ${prefetched.names.length} fichiers ${wantKind}, ${tracked.length} magasins suivis`);
+  } else {
+    console.log(`  [${chain.label}] ${tracked.length} magasins suivis (listing par magasin)`);
+  }
+
+  async function fileSourceForStore(store) {
+    if (chain.portal === 'publishedprices') {
+      return { file: newestFileForStore(prefetched.names, store), download: prefetched.download };
+    }
+    const urls = await listShufersalFiles(wantKind, parseInt(store.store_id, 10) || store.store_id);
+    const map = new Map();
+    const names = [];
+    for (const u of urls) {
+      const m = u.match(/([^/?]+\.(?:gz|xml))/i);
+      const fname = m ? m[1] : u;
+      if (parseFileName(fname).kind !== wantKind) continue;
+      if (!map.has(fname)) { map.set(fname, u); names.push(fname); }
+    }
+    const file = newestFileForStore(names, store) || newestFile(names);
+    return { file, download: (name) => downloadUrl(map.get(name)) };
+  }
 
   let productsUp = 0, pricesUp = 0, storesDone = 0;
   const now = new Date().toISOString();
   for (const store of tracked) {
-    const file = newestFileForStore(src.names, store);
+    const { file, download } = await fileSourceForStore(store);
     if (!file) { console.warn(`  [${chain.label}] magasin ${store.store_id}: aucun fichier ${wantKind}`); continue; }
-    const items = extractItems(await parseXml(await src.download(file)));
+    const items = extractItems(await parseXml(await download(file)));
     if (items.length === 0) continue;
     const productRows = items.map(it => buildProductRow(it, chain));
     productsUp += await upsert('products', productRows, 'ean');

@@ -112,9 +112,9 @@ export async function downloadPublished(session, filename) {
   return decompress(await res.arrayBuffer(), filename);
 }
 
-export async function listShufersalFiles(category) {
+export async function listShufersalFiles(category, storeID = 0) {
   const catID = SHUFERSAL_CAT[category] ?? 0;
-  const url = `${SHUFERSAL_BASE}/FileObject/UpdateCategory?catID=${catID}&storeID=0`;
+  const url = `${SHUFERSAL_BASE}/FileObject/UpdateCategory?catID=${catID}&storeID=${storeID}`;
   const res = await fetch(url, { headers: { 'User-Agent': UA } });
   if (!res.ok) throw new Error(`Listing Shufersal ${res.status}`);
   const html = await res.text();
