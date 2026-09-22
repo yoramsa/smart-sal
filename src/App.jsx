@@ -803,6 +803,14 @@ export default function App() {
     setTempChain(cheapestChain(product));
   };
 
+  const [pendingBulk, setPendingBulk] = useState(null);
+  const chooseSuggestion = (product, qty, originalText, isAmbiguous = false) => {
+    setPendingBulk({ originalText, isAmbiguous });
+    setShowQty(product);
+    setTempQty(String(Math.max(1, Math.round(qty) || 1)));
+    setTempChain(cheapestChain(product));
+  };
+
   const confirmAdd = () => {
     if (!showQty) return;
     const userCount = parseInt(tempQty)||1;
@@ -820,6 +828,12 @@ export default function App() {
       if (existing) return prev.map(i=>i.product.id===productToAdd.id?{...i,qty:+(i.qty+finalQty).toFixed(3),chosenChain}:i);
       return [...prev, { product:productToAdd, qty:finalQty, chosenChain }];
     });
+    if (pendingBulk) {
+      setBulkAddedCount(c => c + 1);
+      if (pendingBulk.isAmbiguous) setBulkAmbiguous(prev => prev.filter(x => x.text !== pendingBulk.originalText));
+      else setBulkNotFound(prev => prev.filter(x => x.text !== pendingBulk.originalText));
+      setPendingBulk(null);
+    }
     setShowQty(null);
   };
 
@@ -996,7 +1010,7 @@ export default function App() {
                       {amb.suggestions.map(sg => (
                         <button
                           key={sg.id}
-                          onClick={()=>addSuggestion(sg, amb.qty||1, amb.text, true)}
+                          onClick={()=>chooseSuggestion(sg, amb.qty||1, amb.text, true)}
                           style={{background:"#fff",border:"1.5px solid #1565C0",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#1565C0",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>
                           <span>{sg.emoji}</span>
                           <span>+ {sg.name_he ? sg.name_he.replace(/מבצע/g,"").trim() : sg.name}</span>
@@ -1008,7 +1022,7 @@ export default function App() {
                       if (!cheap) return null;
                       return (
                         <button
-                          onClick={()=>addSuggestion(cheap, amb.qty||1, amb.text, true)}
+                          onClick={()=>chooseSuggestion(cheap, amb.qty||1, amb.text, true)}
                           style={{marginTop:8,background:"#7C3AED",color:"#fff",border:"none",borderRadius:20,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
                           <span>🏆</span>
                           <span>Le moins cher : {productName(cheap)} · {bestPrice(cheap).toFixed(1)}₪</span>
@@ -1034,7 +1048,7 @@ export default function App() {
                           {nf.suggestions.map(sg => (
                             <button
                               key={sg.id}
-                              onClick={()=>addSuggestion(sg, nf.qty || 1, nf.text)}
+                              onClick={()=>chooseSuggestion(sg, nf.qty || 1, nf.text)}
                               style={{background:"#fff",border:"1.5px solid #2D5016",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#2D5016",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>
                               <span>{sg.emoji}</span>
                               <span>+ {sg.name}</span>
@@ -1046,7 +1060,7 @@ export default function App() {
                           if (!cheap) return null;
                           return (
                             <button
-                              onClick={()=>addSuggestion(cheap, nf.qty||1, nf.text)}
+                              onClick={()=>chooseSuggestion(cheap, nf.qty||1, nf.text)}
                               style={{marginTop:8,background:"#7C3AED",color:"#fff",border:"none",borderRadius:20,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
                               <span>🏆</span>
                               <span>Le moins cher : {productName(cheap)} · {bestPrice(cheap).toFixed(1)}₪</span>
