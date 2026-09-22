@@ -880,6 +880,47 @@ export default function App() {
     }
   };
 
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const importBulkListDb = async () => {
+    const lines = bulkInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    setBulkLoading(true);
+    const notFound = [];
+    const ambiguous = [];
+    try {
+      for (const raw of lines) {
+        let s = cleanLine(raw);
+        let qty = 1;
+        const stuck = s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|ml|cl)\b\s*(.*)$/i);
+        if (stuck) { qty = parseFloat(stuck[1].replace(",", ".")) || 1; s = stuck[3] || ""; }
+        else {
+          const m = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
+          if (m) { qty = parseFloat(m[1].replace(",", ".")) || 1; s = m[2]; }
+        }
+        const un = s.match(/^(un|une)\s+(.+)$/i);
+        if (un) { qty = 1; s = un[2]; }
+        qty = Math.max(1, Math.round(qty));
+        const term = s.trim();
+        if (term.length < 2) { notFound.push({ text: raw, qty, suggestions: [] }); continue; }
+
+        let cands = await searchProducts(term, 8);
+        if (cands.length === 0) {
+          const he = FR_TO_HE[normalize(term)];
+          if (he) cands = await searchProducts(he, 8);
+        }
+        cands = (await attachPrices(cands, selectedStoreIds)).filter(p => Object.keys(p.prices).length > 0);
+        if (cands.length === 0) notFound.push({ text: raw, qty, suggestions: [] });
+        else ambiguous.push({ text: raw, cleaned: term, qty, label: term, suggestions: cands.slice(0, 6) });
+      }
+    } catch (e) {
+      console.warn("Import base échoué", e);
+    }
+    setBulkNotFound(notFound);
+    setBulkAmbiguous(ambiguous);
+    setBulkAddedCount(0);
+    setBulkInput("");
+    setBulkLoading(false);
+  };
+
   const addSuggestion = (product, qty, originalText, isAmbiguous = false) => {
     setBasket(prev => {
       const idx = prev.findIndex(i => i.product.id === product.id);
@@ -985,10 +1026,10 @@ export default function App() {
               style={{width:"100%",minHeight:180,padding:"14px",borderRadius:14,border:"1.5px solid #EEE8DE",fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF8",outline:"none",color:"#222",resize:"vertical",lineHeight:1.7}}
             />
             <button
-              onClick={importBulkList}
-              disabled={!bulkInput.trim()}
-              style={{...S.addBtn,marginTop:12,opacity:bulkInput.trim()?1:0.5,cursor:bulkInput.trim()?"pointer":"default"}}>
-              {tr("bulk.import")}
+              onClick={dbReady ? importBulkListDb : importBulkList}
+              disabled={!bulkInput.trim() || bulkLoading}
+              style={{...S.addBtn,marginTop:12,opacity:(bulkInput.trim()&&!bulkLoading)?1:0.5,cursor:(bulkInput.trim()&&!bulkLoading)?"pointer":"default"}}>
+              {bulkLoading ? "⏳ Recherche…" : tr("bulk.import")}
             </button>
             {bulkAddedCount > 0 && (
               <div style={{background:"#E8F5E9",border:"1.5px solid #A8D878",borderRadius:12,padding:"12px 14px",marginTop:14,fontSize:13,color:"#2D5016",fontWeight:600}}>
