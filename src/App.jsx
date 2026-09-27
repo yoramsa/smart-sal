@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import productsJson from "./products.json";
 import { compareBasket } from "./compare.js";
 import { dbReady, searchProducts, getDefaultProducts, getByCategory, attachPrices, getTrackedStores } from "./db.js";
+import { createList } from "./lists.js";
 
 const DB_CATS = [
   "🥬 Fruits & Légumes", "🍞 Boulangerie", "🥛 Crémerie & Œufs", "🥩 Boucherie & Poisson",
@@ -1288,6 +1289,11 @@ export default function App() {
       {/* SEARCH TAB */}
       {tab==="search" && (
         <div style={S.content} className="tab-content">
+          <button
+            onClick={async ()=>{ try { const id = await createList("Notre liste"); window.location.href = window.location.pathname + "?l=" + id; } catch {} }}
+            style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#7C3AED,#9F67F0)",border:"none",borderRadius:14,fontSize:14,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"'Syne',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:"0 6px 20px rgba(124,58,237,0.3)"}}>
+            🧺 Liste partagée à deux (en direct)
+          </button>
           {dbReady && scopeStores.length > 0 && (
             <button
               onClick={()=>setShowStorePicker(true)}
