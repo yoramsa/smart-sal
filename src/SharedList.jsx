@@ -9,6 +9,51 @@ const V = {
 
 function hasHebrew(s) { return /[֐-׿]/.test(s || ""); }
 
+function normalize(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+const FR_TO_HE = {
+  "poireau": "כרישה", "poireaux": "כרישה", "patate douce": "בטטה", "patates douces": "בטטה",
+  "betterave": "סלק", "fenouil": "שומר", "chou fleur": "כרובית", "chou-fleur": "כרובית", "choufleur": "כרובית",
+  "chou": "כרוב", "basilic": "בזיליקום", "persil": "פטרוזיליה", "coriandre": "כוסברה", "menthe": "נענע",
+  "courgette": "קישוא", "courgettes": "קישוא", "aubergine": "חציל", "aubergines": "חציל",
+  "concombre": "מלפפון", "concombres": "מלפפון", "tomate": "עגבניה", "tomates": "עגבניה", "tomates cerises": "עגבניות שרי",
+  "carotte": "גזר", "carottes": "גזר", "pomme de terre": "תפוח אדמה", "pommes de terre": "תפוח אדמה",
+  "avocat": "אבוקדו", "champignon": "פטריה", "champignons": "פטריה", "oignon": "בצל", "oignons": "בצל",
+  "ail": "שום", "poivron": "פלפל", "poivrons": "פלפל", "salade": "חסה", "laitue": "חסה", "epinard": "תרד",
+  "brocoli": "ברוקולי", "mais": "תירס", "lait": "חלב", "lait de soja": "משקה סויה",
+  "oeuf": "ביצה", "oeufs": "ביצה", "beurre": "חמאה", "margarine": "מרגרינה", "creme fraiche": "שמנת", "creme": "שמנת",
+  "fromage": "גבינה", "mozza": "מוצרלה", "mozzarella": "מוצרלה", "parmesan": "פרמזן", "yaourt": "יוגורט",
+  "confiture": "ריבה", "cereale": "דגני בוקר", "cereales": "דגני בוקר", "gateau": "עוגה", "biscuit": "ביסקוויט",
+  "pain": "לחם", "farine": "קמח", "sucre": "סוכר", "sel": "מלח", "poivre": "פלפל שחור", "huile": "שמן",
+  "huile d'olive": "שמן זית", "vinaigre": "חומץ", "riz": "אורז", "pate": "פסטה", "pates": "פסטה",
+  "poulet": "עוף", "boeuf": "בקר", "saumon": "סלמון", "thon": "טונה", "eau": "מים", "jus": "מיץ",
+  "cafe": "קפה", "the": "תה", "chocolat": "שוקולד", "miel": "דבש", "ketchup": "קטשופ", "mayonnaise": "מיונז",
+  "olives": "זיתים", "olive": "זית", "houmous": "חומוס", "tahini": "טחינה",
+  "shampoing": "שמפו", "savon": "סבון", "lessive": "אבקת כביסה", "javel": "אקונומיקה", "eponges": "ספוגים",
+  "petits pois": "אפונה", "haricots verts": "שעועית ירוקה", "feves": "פול", "frites": "צ'יפס",
+};
+
+const NOISE_PREFIXES = [/^un gros paquet de\s*/i, /^un peu de\s*/i, /^un\s+/i, /^une\s+/i, /^des\s+/i, /^de la\s+/i, /^du\s+/i, /^de\s+/i];
+
+function cleanLine(raw) {
+  let s = (raw || "").trim();
+  for (const rx of NOISE_PREFIXES) s = s.replace(rx, "");
+  return s.trim();
+}
+
+function parseListLine(raw) {
+  let s = cleanLine(raw);
+  let qty = 1;
+  const m = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
+  if (m) { qty = parseFloat(m[1].replace(",", ".")) || 1; s = m[2]; }
+  const un = s.match(/^(un|une)\s+(.+)$/i);
+  if (un) { qty = 1; s = un[2]; }
+  return { qty: Math.max(1, Math.round(qty)), term: s.trim() };
+}
+
+
 function cheapestFromPrices(pricesByEan, ean) {
   const entry = pricesByEan[ean];
   if (!entry) return { price: null, chain: null };
@@ -28,6 +73,10 @@ export default function SharedList() {
   const [searching, setSearching] = useState(false);
   const [copied, setCopied] = useState(false);
   const searchTimer = useRef(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importDone, setImportDone] = useState(null);
 
   const reload = useCallback(async () => {
     if (!listId) return;
@@ -97,6 +146,38 @@ export default function SharedList() {
     setItems(prev => [...prev, optimistic]);
     try { await addItem(listId, { name: text, emoji: "📝", category: "🛒 Divers", qty: 1 }); } catch {}
     reload();
+  };
+
+  const importList = async () => {
+    const lines = importText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    setImporting(true);
+    let added = 0;
+    for (const raw of lines) {
+      const { qty, term } = parseListLine(raw);
+      if (term.length < 2) continue;
+      try {
+        let cands = await searchProducts(term, 5);
+        if (cands.length === 0) {
+          const he = FR_TO_HE[normalize(term)];
+          if (he) cands = await searchProducts(he, 5);
+        }
+        if (cands.length > 0) {
+          const p = cands[0];
+          let price = null, chain = null;
+          try { const pr = await getPricesForEans([p.ean]); const c = cheapestFromPrices(pr, p.ean); price = c.price; chain = c.chain; } catch {}
+          await addItem(listId, { ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty, price, chain });
+        } else {
+          await addItem(listId, { name: term, emoji: "📝", category: "🛒 Divers", qty });
+        }
+        added += 1;
+      } catch {}
+    }
+    setImporting(false);
+    setImportDone(added);
+    setImportText("");
+    await reload();
+    setTimeout(() => { setShowImport(false); setImportDone(null); }, 1400);
   };
 
   const toggle = async (it) => {
@@ -207,6 +288,12 @@ export default function SharedList() {
             )}
           </div>
 
+          <div style={{ padding: "8px 16px 0", textAlign: "center" }}>
+            <button className="sl-press" onClick={() => { setImportDone(null); setShowImport(true); }} style={S.importLink}>
+              📋 Ou colle une liste entière
+            </button>
+          </div>
+
           <div style={S.body}>
             {loading ? (
               <div style={S.empty}>Chargement…</div>
@@ -244,6 +331,36 @@ export default function SharedList() {
             )}
             <div style={{ height: 40 }} />
           </div>
+
+          {showImport && (
+            <div style={S.overlay} onClick={() => !importing && setShowImport(false)}>
+              <div style={S.modal} className="sl-fade" onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 19, color: V.violetDark }}>📋 Coller une liste</div>
+                  <button onClick={() => !importing && setShowImport(false)} style={{ background: "none", border: "none", fontSize: 24, color: "#BBB", cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ fontSize: 13, color: V.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                  Un article par ligne (français ou hébreu). On cherche chaque produit et on l'ajoute à la liste.
+                </div>
+                <textarea
+                  value={importText}
+                  onChange={e => setImportText(e.target.value)}
+                  placeholder={"2 קרטון חלב\nלחם\n3 ביצים\ncarottes\ntomates"}
+                  disabled={importing}
+                  style={S.textarea}
+                />
+                {importDone != null && (
+                  <div style={{ background: V.violetLight, color: V.violetDark, borderRadius: 12, padding: "10px 14px", marginTop: 12, fontSize: 13, fontWeight: 700, textAlign: "center" }}>
+                    ✅ {importDone} article{importDone > 1 ? "s" : ""} ajouté{importDone > 1 ? "s" : ""} à la liste
+                  </div>
+                )}
+                <button className="sl-press" onClick={importList} disabled={importing || !importText.trim()}
+                  style={{ ...S.bigBtn, width: "100%", marginTop: 14, opacity: (importing || !importText.trim()) ? 0.5 : 1, boxShadow: "none", borderRadius: 14, padding: "14px" }}>
+                  {importing ? "⏳ Ajout en cours…" : "✨ Importer dans la liste"}
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -279,4 +396,8 @@ const S = {
   qtyNum: { minWidth: 20, textAlign: "center", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 14, color: V.violetDark },
   delBtn: { background: "transparent", border: "none", color: "#C9C2D6", fontSize: 15, cursor: "pointer", flexShrink: 0, padding: "4px 2px" },
   empty: { textAlign: "center", padding: "50px 20px", color: V.muted },
+  importLink: { background: "transparent", border: "none", color: V.violet, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline", padding: 6 },
+  overlay: { position: "fixed", inset: 0, background: "rgba(36,28,51,0.5)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" },
+  modal: { background: "#fff", borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto" },
+  textarea: { width: "100%", minHeight: 170, padding: "14px", borderRadius: 14, border: "1.5px solid #E7E1F2", fontSize: 14, fontFamily: "'DM Sans',sans-serif", background: "#FAF9FE", outline: "none", color: V.text, resize: "vertical", lineHeight: 1.7 },
 };

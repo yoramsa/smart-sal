@@ -5,7 +5,7 @@ import SharedList from './SharedList.jsx'
 import './index.css'
 
 const params = new URLSearchParams(window.location.search)
-const Root = params.has('l') ? SharedList : App
+const Root = params.has('app') ? App : SharedList
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
