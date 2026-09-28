@@ -18,6 +18,7 @@ create table if not exists list_items (
   chain text,
   price numeric,
   checked boolean not null default false,
+  missing boolean not null default false,
   note text,
   position integer not null default 0,
   created_at timestamptz not null default now()
