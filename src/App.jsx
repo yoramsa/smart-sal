@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import productsJson from "./products.json";
 import { compareBasket } from "./compare.js";
 import { dbReady, searchProducts, getDefaultProducts, getByCategory, attachPrices, getTrackedStores } from "./db.js";
+import { createList } from "./lists.js";
 
 const DB_CATS = [
   "🥬 Fruits & Légumes", "🍞 Boulangerie", "🥛 Crémerie & Œufs", "🥩 Boucherie & Poisson",
@@ -880,6 +881,47 @@ export default function App() {
     }
   };
 
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const importBulkListDb = async () => {
+    const lines = bulkInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    setBulkLoading(true);
+    const notFound = [];
+    const ambiguous = [];
+    try {
+      for (const raw of lines) {
+        let s = cleanLine(raw);
+        let qty = 1;
+        const stuck = s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|gr|l|ml|cl)\b\s*(.*)$/i);
+        if (stuck) { qty = parseFloat(stuck[1].replace(",", ".")) || 1; s = stuck[3] || ""; }
+        else {
+          const m = s.match(/^(\d+(?:[.,]\d+)?)\s+(.*)$/);
+          if (m) { qty = parseFloat(m[1].replace(",", ".")) || 1; s = m[2]; }
+        }
+        const un = s.match(/^(un|une)\s+(.+)$/i);
+        if (un) { qty = 1; s = un[2]; }
+        qty = Math.max(1, Math.round(qty));
+        const term = s.trim();
+        if (term.length < 2) { notFound.push({ text: raw, qty, suggestions: [] }); continue; }
+
+        let cands = await searchProducts(term, 8);
+        if (cands.length === 0) {
+          const he = FR_TO_HE[normalize(term)];
+          if (he) cands = await searchProducts(he, 8);
+        }
+        cands = (await attachPrices(cands, selectedStoreIds)).filter(p => Object.keys(p.prices).length > 0);
+        if (cands.length === 0) notFound.push({ text: raw, qty, suggestions: [] });
+        else ambiguous.push({ text: raw, cleaned: term, qty, label: term, suggestions: cands.slice(0, 6) });
+      }
+    } catch (e) {
+      console.warn("Import base échoué", e);
+    }
+    setBulkNotFound(notFound);
+    setBulkAmbiguous(ambiguous);
+    setBulkAddedCount(0);
+    setBulkInput("");
+    setBulkLoading(false);
+  };
+
   const addSuggestion = (product, qty, originalText, isAmbiguous = false) => {
     setBasket(prev => {
       const idx = prev.findIndex(i => i.product.id === product.id);
@@ -985,10 +1027,10 @@ export default function App() {
               style={{width:"100%",minHeight:180,padding:"14px",borderRadius:14,border:"1.5px solid #EEE8DE",fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF8",outline:"none",color:"#222",resize:"vertical",lineHeight:1.7}}
             />
             <button
-              onClick={importBulkList}
-              disabled={!bulkInput.trim()}
-              style={{...S.addBtn,marginTop:12,opacity:bulkInput.trim()?1:0.5,cursor:bulkInput.trim()?"pointer":"default"}}>
-              {tr("bulk.import")}
+              onClick={dbReady ? importBulkListDb : importBulkList}
+              disabled={!bulkInput.trim() || bulkLoading}
+              style={{...S.addBtn,marginTop:12,opacity:(bulkInput.trim()&&!bulkLoading)?1:0.5,cursor:(bulkInput.trim()&&!bulkLoading)?"pointer":"default"}}>
+              {bulkLoading ? "⏳ Recherche…" : tr("bulk.import")}
             </button>
             {bulkAddedCount > 0 && (
               <div style={{background:"#E8F5E9",border:"1.5px solid #A8D878",borderRadius:12,padding:"12px 14px",marginTop:14,fontSize:13,color:"#2D5016",fontWeight:600}}>
@@ -1247,6 +1289,11 @@ export default function App() {
       {/* SEARCH TAB */}
       {tab==="search" && (
         <div style={S.content} className="tab-content">
+          <button
+            onClick={async ()=>{ try { const id = await createList("Notre liste"); window.location.href = window.location.pathname + "?l=" + id; } catch {} }}
+            style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#7C3AED,#9F67F0)",border:"none",borderRadius:14,fontSize:14,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"'Syne',sans-serif",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:"0 6px 20px rgba(124,58,237,0.3)"}}>
+            🧺 Liste partagée à deux (en direct)
+          </button>
           {dbReady && scopeStores.length > 0 && (
             <button
               onClick={()=>setShowStorePicker(true)}
@@ -1701,47 +1748,39 @@ export default function App() {
               {/* TOTAL RECAP */}
               <div style={S.totalCard}>
                 <div style={{fontFamily:"'Syne',sans-serif",fontSize:13,fontWeight:800,color:"#333",marginBottom:4}}>
-                  Si tu achetais TOUT dans un seul supermarché :
+                  Ce que tu paierais dans chaque enseigne :
                 </div>
-                <div style={{fontSize:11,color:"#999",marginBottom:8}}>Même panier, mêmes quantités</div>
+                <div style={{fontSize:11,color:"#999",marginBottom:8}}>Le gros chiffre = ton panier dans cette enseigne (pour les articles qu'elle vend)</div>
 
                 {comparison && (
                   <div style={{fontSize:11,color:"#5B3AA6",background:"#F3EEFB",borderRadius:8,padding:"7px 10px",marginBottom:12,lineHeight:1.5}}>
-                    {comparison.intersectionCount > 0 ? (
-                      <>Comparé sur <strong>{comparison.intersectionCount}</strong> article{comparison.intersectionCount>1?"s":""} commun{comparison.intersectionCount>1?"s":""} aux {CHAINS.length} enseignes</>
-                    ) : (
-                      <>⚠️ Aucun article commun aux {CHAINS.length} enseignes — chiffres non comparables</>
-                    )}
-                    {comparison.totalComparable > comparison.intersectionCount && <> · {comparison.totalComparable - comparison.intersectionCount} pas dispo partout</>}
-                    {comparison.excludedWeighted.length > 0 && <> · {comparison.excludedWeighted.length} au poids exclu{comparison.excludedWeighted.length>1?"s":""}</>}
+                    ⚠️ Chaque enseigne ne vend pas les mêmes produits — regarde le nombre d'articles dispo. Pour vraiment économiser, achète chaque article là où il est le moins cher 👇
+                    {comparison.excludedWeighted.length > 0 && <> · {comparison.excludedWeighted.length} produit{comparison.excludedWeighted.length>1?"s":""} au poids exclu{comparison.excludedWeighted.length>1?"s":""}</>}
                   </div>
                 )}
 
-                {comparison && CHAINS.map(chain=>{
+                {comparison && [...CHAINS].sort((a,b)=>comparison.perChain[b].availableCount - comparison.perChain[a].availableCount).map(chain=>{
                   const pc = comparison.perChain[chain];
-                  const usable = comparison.intersectionCount > 0;
-                  const base = usable ? pc.restrictedTotal : pc.fullTotal;
                   const d = DELIVERY[chain];
-                  const fee = deliveryMode ? (base>=d.freeAbove?0:d.fee) : 0;
-                  const grandTotal = base + fee;
-                  const isCheapest = usable && chain === comparison.cheapestChain;
-                  const diff = usable ? pc.restrictedTotal - comparison.cheapestTotal : 0;
+                  const fee = deliveryMode ? (pc.fullTotal>=d.freeAbove?0:d.fee) : 0;
+                  const grandTotal = pc.fullTotal + fee;
+                  const maxAvail = Math.max(...CHAINS.map(c=>comparison.perChain[c].availableCount));
+                  const mostComplete = pc.availableCount > 0 && pc.availableCount === maxAvail;
+                  if (pc.availableCount === 0) return null;
                   return (
-                    <div key={chain} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"10px 12px",borderRadius:12,background:isCheapest?"#F3EEFB":CHAIN_COLORS[chain].light,border:isCheapest?"1.5px solid #7C3AED":"1.5px solid transparent"}}>
+                    <div key={chain} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"10px 12px",borderRadius:12,background:mostComplete?"#F3EEFB":CHAIN_COLORS[chain].light,border:mostComplete?"1.5px solid #7C3AED":"1.5px solid transparent"}}>
                       <div>
-                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                           <div style={{width:8,height:8,borderRadius:"50%",background:CHAIN_COLORS[chain].bg,flexShrink:0}}/>
                           <span style={{fontSize:13,fontWeight:600}}>{chain}</span>
-                          {isCheapest && <span style={{fontSize:9,background:"#7C3AED",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>LE MOINS CHER</span>}
+                          {mostComplete && <span style={{fontSize:9,background:"#7C3AED",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>🛒 LE + COMPLET</span>}
+                        </div>
+                        <div style={{fontSize:11,color:"#2D5016",marginTop:2,marginLeft:14,fontWeight:600}}>
+                          {pc.availableCount} article{pc.availableCount>1?"s":""} ici
                         </div>
                         {pc.missingCount > 0 && (
-                          <div style={{fontSize:10,color:"#E53935",marginTop:2,marginLeft:14}}>
-                            {pc.missingCount} article{pc.missingCount>1?"s":""} manquant{pc.missingCount>1?"s":""} — non compté{pc.missingCount>1?"s":""}
-                          </div>
-                        )}
-                        {usable && pc.fullTotal > pc.restrictedTotal && (
-                          <div style={{fontSize:10,color:"#888",marginTop:2,marginLeft:14}}>
-                            Panier complet ici : {pc.fullTotal.toFixed(1)}₪ ({pc.availableCount} dispo)
+                          <div style={{fontSize:10,color:"#E53935",marginTop:1,marginLeft:14}}>
+                            {pc.missingCount} manquant{pc.missingCount>1?"s":""} (à acheter ailleurs)
                           </div>
                         )}
                         {deliveryMode && d.available && <div style={{fontSize:10,color:fee===0?"#43A047":"#999",marginTop:2,marginLeft:14}}>
@@ -1752,10 +1791,10 @@ export default function App() {
                         </div>}
                       </div>
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:15,color:isCheapest?"#5B3AA6":CHAIN_COLORS[chain].bg}}>
+                        <div style={{fontFamily:"'Syne',sans-serif",fontWeight:800,fontSize:16,color:mostComplete?"#5B3AA6":CHAIN_COLORS[chain].bg}}>
                           {grandTotal.toFixed(1)}₪
                         </div>
-                        {usable && !isCheapest && diff > 0.05 && <div style={{fontSize:11,color:"#E53935"}}>+{diff.toFixed(1)}₪ vs {comparison.cheapestChain}</div>}
+                        <div style={{fontSize:10,color:"#999"}}>pour {pc.availableCount} art.</div>
                       </div>
                     </div>
                   );
