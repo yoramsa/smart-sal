@@ -181,8 +181,9 @@ export default function SharedList() {
   };
 
   const toggle = async (it) => {
-    setItems(prev => prev.map(x => x.id === it.id ? { ...x, checked: !x.checked } : x));
-    try { await updateItem(it.id, { checked: !it.checked }); } catch {}
+    const nowChecked = !it.checked;
+    setItems(prev => prev.map(x => x.id === it.id ? { ...x, checked: nowChecked, missing: nowChecked ? false : x.missing } : x));
+    try { await updateItem(it.id, { checked: nowChecked, missing: nowChecked ? false : it.missing }); } catch {}
   };
   const changeQty = async (it, delta) => {
     const q = Math.max(1, Number(it.qty) + delta);
@@ -192,6 +193,17 @@ export default function SharedList() {
   const del = async (it) => {
     setItems(prev => prev.filter(x => x.id !== it.id));
     try { await removeItem(it.id); } catch {}
+  };
+  const markMissing = async (it) => {
+    const nowMissing = !it.missing;
+    setItems(prev => prev.map(x => x.id === it.id ? { ...x, missing: nowMissing, checked: nowMissing ? false : x.checked } : x));
+    try { await updateItem(it.id, { missing: nowMissing, checked: nowMissing ? false : it.checked }); } catch {}
+  };
+  const resetList = async () => {
+    const toReset = items.filter(i => i.checked || i.missing);
+    if (toReset.length === 0) return;
+    setItems(prev => prev.map(x => ({ ...x, checked: false, missing: false })));
+    for (const it of toReset) { try { await updateItem(it.id, { checked: false, missing: false }); } catch {} }
   };
 
   const share = async () => {
@@ -206,7 +218,9 @@ export default function SharedList() {
 
   const total = items.length;
   const done = items.filter(i => i.checked).length;
-  const pct = total ? Math.round(done / total * 100) : 0;
+  const missingCount = items.filter(i => i.missing).length;
+  const settled = done + missingCount;
+  const pct = total ? Math.round(settled / total * 100) : 0;
 
   const groups = {};
   for (const it of items) {
@@ -214,8 +228,9 @@ export default function SharedList() {
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(it);
   }
+  const rank = (x) => (x.missing ? 2 : x.checked ? 1 : 0);
   for (const cat of Object.keys(groups)) {
-    groups[cat].sort((a, b) => (a.checked === b.checked ? 0 : a.checked ? 1 : -1));
+    groups[cat].sort((a, b) => rank(a) - rank(b));
   }
 
   return (
@@ -251,7 +266,7 @@ export default function SharedList() {
             </div>
             <div style={{ marginTop: 12 }}>
               <div style={S.progressTrack}><div style={{ ...S.progressFill, width: `${pct}%` }} /></div>
-              <div style={S.progressLabel}>{done}/{total} pris · {pct}%</div>
+              <div style={S.progressLabel}>{done} pris{missingCount ? ` · ${missingCount} חסר` : ""} · {pct}%</div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="sl-press" onClick={share} style={S.sharePill}>{copied ? "✓ Lien copié" : "🔗 Copier le lien"}</button>
@@ -308,26 +323,38 @@ export default function SharedList() {
                 <div key={cat} style={{ marginBottom: 18 }}>
                   <div style={S.catHead}>{cat}</div>
                   {list.map(it => (
-                    <div key={it.id} className="sl-fade" style={{ ...S.item, opacity: it.checked ? 0.5 : 1 }}>
+                    <div key={it.id} className="sl-fade" style={{ ...S.item, opacity: (it.checked || it.missing) ? 0.55 : 1, ...(it.missing ? S.itemMissing : {}) }}>
                       <div className="sl-press" onClick={() => toggle(it)} style={{ ...S.check, background: it.checked ? V.violet : "transparent", borderColor: it.checked ? V.violet : "#D8D1E6" }}>
                         {it.checked && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>✓</span>}
                       </div>
                       <div style={{ fontSize: 22, flexShrink: 0 }}>{it.emoji || "🛒"}</div>
                       <div style={{ flex: 1, minWidth: 0 }} onClick={() => toggle(it)}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: V.text, textDecoration: it.checked ? "line-through" : "none", direction: hasHebrew(it.name) ? "rtl" : "ltr", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</div>
-                        {it.name_he && !hasHebrew(it.name) && <div style={{ fontSize: 11, color: V.muted, direction: "rtl" }}>{it.name_he}</div>}
-                        {it.price != null && <div style={{ fontSize: 11, color: V.violet, fontWeight: 600 }}>dès {Number(it.price).toFixed(1)}₪{it.chain ? ` · ${it.chain}` : ""}</div>}
+                        <div style={{ fontSize: 14, fontWeight: 600, color: it.missing ? "#C2410C" : V.text, textDecoration: (it.checked || it.missing) ? "line-through" : "none", direction: hasHebrew(it.name) ? "rtl" : "ltr", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</div>
+                        {it.missing ? (
+                          <div style={{ fontSize: 11, color: "#EA580C", fontWeight: 700, direction: "rtl", textAlign: "left" }}>חסר · introuvable en magasin</div>
+                        ) : (
+                          <>
+                            {it.name_he && !hasHebrew(it.name) && <div style={{ fontSize: 11, color: V.muted, direction: "rtl" }}>{it.name_he}</div>}
+                            {it.price != null && <div style={{ fontSize: 11, color: V.violet, fontWeight: 600 }}>dès {Number(it.price).toFixed(1)}₪{it.chain ? ` · ${it.chain}` : ""}</div>}
+                          </>
+                        )}
                       </div>
-                      <div style={S.qtyBox} onClick={e => e.stopPropagation()}>
-                        <button className="sl-press" onClick={() => changeQty(it, -1)} style={S.qtyBtn}>−</button>
-                        <span style={S.qtyNum}>{Number(it.qty)}</span>
-                        <button className="sl-press" onClick={() => changeQty(it, +1)} style={S.qtyBtn}>+</button>
-                      </div>
+                      {!it.missing && (
+                        <div style={S.qtyBox} onClick={e => e.stopPropagation()}>
+                          <button className="sl-press" onClick={() => changeQty(it, -1)} style={S.qtyBtn}>−</button>
+                          <span style={S.qtyNum}>{Number(it.qty)}</span>
+                          <button className="sl-press" onClick={() => changeQty(it, +1)} style={S.qtyBtn}>+</button>
+                        </div>
+                      )}
+                      <button className="sl-press" title="Pas au magasin" onClick={e => { e.stopPropagation(); markMissing(it); }} style={{ ...S.missBtn, ...(it.missing ? S.missBtnOn : {}) }}>חסר</button>
                       <button className="sl-press" onClick={() => del(it)} style={S.delBtn}>✕</button>
                     </div>
                   ))}
                 </div>
               ))
+            )}
+            {settled > 0 && (
+              <button className="sl-press" onClick={resetList} style={S.resetBtn}>🔄 Recommencer (tout décocher)</button>
             )}
             <div style={{ height: 40 }} />
           </div>
@@ -389,7 +416,11 @@ const S = {
   dropRow: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", borderBottom: "1px solid #F3F0F9" },
   body: { padding: "16px" },
   catHead: { fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 12, color: V.violetDark, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
-  item: { display: "flex", alignItems: "center", gap: 10, background: "#fff", borderRadius: 16, padding: "11px 12px", marginBottom: 8, boxShadow: "0 2px 8px rgba(36,28,51,0.05)" },
+  item: { display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 16, padding: "11px 12px", marginBottom: 8, boxShadow: "0 2px 8px rgba(36,28,51,0.05)" },
+  itemMissing: { background: "#FFF7ED", boxShadow: "inset 0 0 0 1.5px #FED7AA" },
+  missBtn: { flexShrink: 0, background: "#FFF3E9", color: "#EA580C", border: "none", borderRadius: 9, padding: "6px 9px", fontSize: 13, fontWeight: 800, cursor: "pointer", lineHeight: 1 },
+  missBtnOn: { background: "#EA580C", color: "#fff" },
+  resetBtn: { display: "block", margin: "4px auto 0", background: "#fff", color: V.muted, border: "1.5px solid #E7E1F2", borderRadius: 12, padding: "11px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
   check: { width: 26, height: 26, borderRadius: "50%", border: "2px solid #D8D1E6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" },
   qtyBox: { display: "flex", alignItems: "center", gap: 2, background: V.violetLight, borderRadius: 10, padding: "2px 4px", flexShrink: 0 },
   qtyBtn: { width: 26, height: 26, borderRadius: 8, border: "none", background: "transparent", color: V.violetDark, fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1 },
