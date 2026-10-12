@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { searchProducts, getPricesForEans } from "./db.js";
+import { searchProducts } from "./db.js";
 import { fetchList, fetchItems, addItem, updateItem, removeItem, renameList, subscribeItems, createList } from "./lists.js";
 
 const V = {
@@ -53,14 +53,6 @@ function parseListLine(raw) {
   return { qty: Math.max(1, Math.round(qty)), term: s.trim() };
 }
 
-
-function cheapestFromPrices(pricesByEan, ean) {
-  const entry = pricesByEan[ean];
-  if (!entry) return { price: null, chain: null };
-  let best = Infinity, chain = null;
-  for (const [c, p] of Object.entries(entry.prices || {})) if (p < best) { best = p; chain = c; }
-  return best === Infinity ? { price: null, chain: null } : { price: best, chain };
-}
 
 export default function SharedList() {
   const params = new URLSearchParams(window.location.search);
@@ -139,11 +131,9 @@ export default function SharedList() {
     const existing = items.find(it => it.ean && it.ean === p.ean);
     if (existing) { showToast(`${p.name} · quantité +1`); await updateItem(existing.id, { qty: Number(existing.qty) + 1 }); reload(); return; }
     showToast(`✓ ${p.name} ajouté`);
-    let price = null, chain = null;
-    try { const pr = await getPricesForEans([p.ean]); const c = cheapestFromPrices(pr, p.ean); price = c.price; chain = c.chain; } catch {}
-    const optimistic = { id: `tmp-${Date.now()}`, list_id: listId, ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty: 1, price, chain, checked: false };
+    const optimistic = { id: `tmp-${Date.now()}`, list_id: listId, ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty: 1, checked: false };
     setItems(prev => [...prev, optimistic]);
-    try { await addItem(listId, { ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty: 1, price, chain }); } catch {}
+    try { await addItem(listId, { ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty: 1 }); } catch {}
     reload();
   };
 
@@ -174,9 +164,7 @@ export default function SharedList() {
         }
         if (cands.length > 0) {
           const p = cands[0];
-          let price = null, chain = null;
-          try { const pr = await getPricesForEans([p.ean]); const c = cheapestFromPrices(pr, p.ean); price = c.price; chain = c.chain; } catch {}
-          await addItem(listId, { ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty, price, chain });
+          await addItem(listId, { ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty });
         } else {
           await addItem(listId, { name: term, emoji: "📝", category: "🛒 Divers", qty });
         }
@@ -358,11 +346,7 @@ export default function SharedList() {
                           {it.missing ? (
                             <div style={S.itemMissTag}>חסר · introuvable en magasin</div>
                           ) : (
-                            <div style={S.itemSub}>
-                              {it.name_he && !rtl ? <span dir="rtl">{it.name_he}</span> : null}
-                              {it.name_he && !rtl && it.price != null ? " · " : ""}
-                              {it.price != null ? <span style={{ color: V.violet, fontWeight: 700 }}>dès {Number(it.price).toFixed(1)}₪{it.chain ? ` ${it.chain}` : ""}</span> : null}
-                            </div>
+                            it.name_he && !rtl ? <div style={S.itemSub} dir="rtl">{it.name_he}</div> : null
                           )}
                         </div>
                       </div>
