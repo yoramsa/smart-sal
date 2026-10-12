@@ -77,6 +77,14 @@ export default function SharedList() {
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importDone, setImportDone] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 1600);
+  };
 
   const reload = useCallback(async () => {
     if (!listId) return;
@@ -129,7 +137,8 @@ export default function SharedList() {
   const addProduct = async (p) => {
     setQuery(""); setResults([]);
     const existing = items.find(it => it.ean && it.ean === p.ean);
-    if (existing) { await updateItem(existing.id, { qty: Number(existing.qty) + 1 }); reload(); return; }
+    if (existing) { showToast(`${p.name} · quantité +1`); await updateItem(existing.id, { qty: Number(existing.qty) + 1 }); reload(); return; }
+    showToast(`✓ ${p.name} ajouté`);
     let price = null, chain = null;
     try { const pr = await getPricesForEans([p.ean]); const c = cheapestFromPrices(pr, p.ean); price = c.price; chain = c.chain; } catch {}
     const optimistic = { id: `tmp-${Date.now()}`, list_id: listId, ean: p.ean, name: p.name, name_he: p.name_he, emoji: p.emoji, category: p.cat, unit: p.unit, qty: 1, price, chain, checked: false };
@@ -141,6 +150,7 @@ export default function SharedList() {
   const addFreeText = async () => {
     const text = query.trim();
     if (!text) return;
+    showToast(`✓ ${text} ajouté`);
     setQuery(""); setResults([]);
     const optimistic = { id: `tmp-${Date.now()}`, name: text, emoji: "📝", category: "🛒 Divers", qty: 1, checked: false };
     setItems(prev => [...prev, optimistic]);
@@ -275,38 +285,44 @@ export default function SharedList() {
           </div>
 
           <div style={S.addWrap}>
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="➕ Ajoute un produit…"
-              style={S.addInput}
-            />
+            <div style={S.addRow}>
+              <span style={S.addIcon}>🔎</span>
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Ajouter un produit (français ou עברית)"
+                style={S.addInput}
+              />
+              {query && <button className="sl-press" onClick={() => { setQuery(""); setResults([]); }} style={S.clearBtn}>✕</button>}
+            </div>
             {query.trim() && (
               <div style={S.dropdown} className="sl-fade">
-                {searching && <div style={S.dropInfo}>Recherche…</div>}
-                {!searching && results.length === 0 && (
-                  <div className="sl-press" onClick={addFreeText} style={S.dropAddText}>
-                    ➕ Ajouter « {query.trim()} » en texte libre
-                  </div>
-                )}
+                {searching && results.length === 0 && <div style={S.dropInfo}>Recherche…</div>}
                 {results.map(p => (
                   <div key={p.ean} className="sl-press" onClick={() => addProduct(p)} style={S.dropRow}>
-                    <span style={{ fontSize: 20 }}>{p.emoji}</span>
+                    <span style={S.dropEmoji}>{p.emoji}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: V.text, direction: hasHebrew(p.name) ? "rtl" : "ltr", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: V.muted }}>{p.cat}</div>
+                      <div style={{ ...S.dropName, direction: hasHebrew(p.name) ? "rtl" : "ltr", textAlign: hasHebrew(p.name) ? "right" : "left" }}>{p.name}</div>
+                      <div style={S.dropMeta}>
+                        {p.name_he && !hasHebrew(p.name) ? <span dir="rtl" style={{ color: V.violetDark, fontWeight: 600 }}>{p.name_he}</span> : null}
+                        {p.name_he && !hasHebrew(p.name) ? " · " : ""}{p.cat}
+                      </div>
                     </div>
-                    <span style={{ fontSize: 20, color: V.violet, fontWeight: 800 }}>+</span>
+                    <span style={S.dropPlus}>+</span>
                   </div>
                 ))}
+                {!searching && (
+                  <div className="sl-press" onClick={addFreeText} style={S.dropAddText}>
+                    📝 Ajouter « {query.trim()} » tel quel
+                  </div>
+                )}
               </div>
             )}
-          </div>
-
-          <div style={{ padding: "8px 16px 0", textAlign: "center" }}>
-            <button className="sl-press" onClick={() => { setImportDone(null); setShowImport(true); }} style={S.importLink}>
-              📋 Ou colle une liste entière
-            </button>
+            <div style={{ textAlign: "center", paddingTop: 6 }}>
+              <button className="sl-press" onClick={() => { setImportDone(null); setShowImport(true); }} style={S.importLink}>
+                📋 Coller une liste entière
+              </button>
+            </div>
           </div>
 
           <div style={S.body}>
@@ -319,45 +335,63 @@ export default function SharedList() {
                 <div style={{ fontSize: 13, color: V.muted, marginTop: 4 }}>Ajoute ton premier article ci-dessus.</div>
               </div>
             ) : (
-              Object.entries(groups).map(([cat, list]) => (
-                <div key={cat} style={{ marginBottom: 18 }}>
-                  <div style={S.catHead}>{cat}</div>
-                  {list.map(it => (
-                    <div key={it.id} className="sl-fade" style={{ ...S.item, opacity: (it.checked || it.missing) ? 0.55 : 1, ...(it.missing ? S.itemMissing : {}) }}>
-                      <div className="sl-press" onClick={() => toggle(it)} style={{ ...S.check, background: it.checked ? V.violet : "transparent", borderColor: it.checked ? V.violet : "#D8D1E6" }}>
-                        {it.checked && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>✓</span>}
-                      </div>
-                      <div style={{ fontSize: 22, flexShrink: 0 }}>{it.emoji || "🛒"}</div>
-                      <div style={{ flex: 1, minWidth: 0 }} onClick={() => toggle(it)}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: it.missing ? "#C2410C" : V.text, textDecoration: (it.checked || it.missing) ? "line-through" : "none", direction: hasHebrew(it.name) ? "rtl" : "ltr", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</div>
-                        {it.missing ? (
-                          <div style={{ fontSize: 11, color: "#EA580C", fontWeight: 700, direction: "rtl", textAlign: "left" }}>חסר · introuvable en magasin</div>
-                        ) : (
-                          <>
-                            {it.name_he && !hasHebrew(it.name) && <div style={{ fontSize: 11, color: V.muted, direction: "rtl" }}>{it.name_he}</div>}
-                            {it.price != null && <div style={{ fontSize: 11, color: V.violet, fontWeight: 600 }}>dès {Number(it.price).toFixed(1)}₪{it.chain ? ` · ${it.chain}` : ""}</div>}
-                          </>
-                        )}
-                      </div>
-                      {!it.missing && (
-                        <div style={S.qtyBox} onClick={e => e.stopPropagation()}>
-                          <button className="sl-press" onClick={() => changeQty(it, -1)} style={S.qtyBtn}>−</button>
-                          <span style={S.qtyNum}>{Number(it.qty)}</span>
-                          <button className="sl-press" onClick={() => changeQty(it, +1)} style={S.qtyBtn}>+</button>
+              Object.entries(groups).map(([cat, list]) => {
+                const catDone = list.filter(x => x.checked || x.missing).length;
+                return (
+                <div key={cat} style={{ marginBottom: 20 }}>
+                  <div style={S.catHead}>
+                    <span>{cat}</span>
+                    <span style={S.catCount}>{catDone}/{list.length}</span>
+                  </div>
+                  {list.map(it => {
+                    const off = it.checked || it.missing;
+                    const rtl = hasHebrew(it.name);
+                    return (
+                    <div key={it.id} className="sl-fade" style={{ ...S.item, ...(it.missing ? S.itemMissing : {}), ...(it.checked ? S.itemDone : {}) }}>
+                      <div style={S.itemTop} onClick={() => toggle(it)}>
+                        <div className="sl-press" style={{ ...S.check, background: it.checked ? V.violet : "#fff", borderColor: it.checked ? V.violet : "#CFC6E3" }}>
+                          {it.checked && <span style={{ color: "#fff", fontSize: 15, fontWeight: 800 }}>✓</span>}
                         </div>
-                      )}
-                      <button className="sl-press" title="Pas au magasin" onClick={e => { e.stopPropagation(); markMissing(it); }} style={{ ...S.missBtn, ...(it.missing ? S.missBtnOn : {}) }}>חסר</button>
-                      <button className="sl-press" onClick={() => del(it)} style={S.delBtn}>✕</button>
+                        <div style={S.itemEmoji}>{it.emoji || "🛒"}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ ...S.itemName, color: it.missing ? "#C2410C" : V.text, textDecoration: off ? "line-through" : "none", direction: rtl ? "rtl" : "ltr", textAlign: rtl ? "right" : "left" }}>{it.name}</div>
+                          {it.missing ? (
+                            <div style={S.itemMissTag}>חסר · introuvable en magasin</div>
+                          ) : (
+                            <div style={S.itemSub}>
+                              {it.name_he && !rtl ? <span dir="rtl">{it.name_he}</span> : null}
+                              {it.name_he && !rtl && it.price != null ? " · " : ""}
+                              {it.price != null ? <span style={{ color: V.violet, fontWeight: 700 }}>dès {Number(it.price).toFixed(1)}₪{it.chain ? ` ${it.chain}` : ""}</span> : null}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div style={S.itemActions}>
+                        {!it.missing && (
+                          <div style={S.qtyBox}>
+                            <button className="sl-press" onClick={() => changeQty(it, -1)} style={S.qtyBtn}>−</button>
+                            <span style={S.qtyNum}>{Number(it.qty)}</span>
+                            <button className="sl-press" onClick={() => changeQty(it, +1)} style={S.qtyBtn}>+</button>
+                          </div>
+                        )}
+                        <div style={{ flex: 1 }} />
+                        <button className="sl-press" onClick={() => markMissing(it)} style={{ ...S.missBtn, ...(it.missing ? S.missBtnOn : {}) }}>חסר</button>
+                        <button className="sl-press" onClick={() => del(it)} style={S.delBtn}>🗑</button>
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              ))
+                );
+              })
             )}
             {settled > 0 && (
               <button className="sl-press" onClick={resetList} style={S.resetBtn}>🔄 Recommencer (tout décocher)</button>
             )}
             <div style={{ height: 40 }} />
           </div>
+
+          {toast && <div style={S.toast} className="sl-fade">{toast}</div>}
 
           {showImport && (
             <div style={S.overlay} onClick={() => !importing && setShowImport(false)}>
@@ -395,12 +429,28 @@ export default function SharedList() {
 }
 
 const S = {
+  toast: { position: "fixed", left: "50%", bottom: 28, transform: "translateX(-50%)", background: V.text, color: "#fff", padding: "12px 20px", borderRadius: 30, fontSize: 14, fontWeight: 600, zIndex: 600, maxWidth: "88vw", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", boxShadow: "0 8px 24px rgba(0,0,0,0.3)" },
+  itemActions: { display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #F3F0F9" },
+  itemMissTag: { fontSize: 12, color: "#EA580C", fontWeight: 700, marginTop: 3 },
+  itemSub: { fontSize: 12, color: V.muted, marginTop: 3 },
+  itemName: { fontSize: 16, fontWeight: 700, lineHeight: 1.3, wordBreak: "break-word" },
+  itemEmoji: { fontSize: 26, flexShrink: 0 },
+  itemTop: { display: "flex", alignItems: "center", gap: 12, cursor: "pointer" },
+  itemDone: { opacity: 0.55, boxShadow: "none" },
+  catCount: { fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700, color: V.muted, background: "#EFEAF8", borderRadius: 20, padding: "3px 9px" },
+  dropPlus: { width: 32, height: 32, borderRadius: "50%", background: V.violet, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 },
+  dropMeta: { fontSize: 12, color: V.muted, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  dropName: { fontSize: 15, fontWeight: 700, color: V.text, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
+  dropEmoji: { width: 40, height: 40, borderRadius: 12, background: V.violetLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 },
+  clearBtn: { width: 32, height: 32, borderRadius: "50%", border: "none", background: "#EFEAF8", color: V.violetDark, fontSize: 14, fontWeight: 800, cursor: "pointer", flexShrink: 0 },
+  addIcon: { fontSize: 17, flexShrink: 0 },
+  addRow: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "2px solid #E2DAF3", borderRadius: 16, padding: "0 6px 0 14px", boxShadow: "0 4px 16px rgba(91,58,166,0.10)" },
   root: { fontFamily: "'DM Sans',sans-serif", background: V.bg, minHeight: "100vh", maxWidth: 480, margin: "0 auto", color: V.text },
   welcome: { padding: "80px 26px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 },
   welcomeTitle: { fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 26, color: V.violetDark, marginTop: 8 },
   welcomeSub: { fontSize: 14, color: V.muted, lineHeight: 1.6, maxWidth: 320, marginBottom: 8 },
   bigBtn: { marginTop: 12, background: V.violet, color: "#fff", border: "none", borderRadius: 16, padding: "16px 28px", fontSize: 16, fontWeight: 800, fontFamily: "'Syne',sans-serif", cursor: "pointer", boxShadow: "0 8px 24px rgba(124,58,237,0.35)" },
-  header: { background: `linear-gradient(135deg, ${V.violet}, #9F67F0)`, padding: "44px 20px 20px", color: "#fff", borderRadius: "0 0 24px 24px" },
+  header: { background: `linear-gradient(135deg, ${V.violet}, #9F67F0)`, padding: "36px 20px 18px", color: "#fff", borderRadius: "0 0 28px 28px" },
   nameInput: { background: "transparent", border: "none", outline: "none", color: "#fff", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 24, width: "100%", padding: 0 },
   liveTag: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 4 },
   dot: { width: 8, height: 8, borderRadius: "50%", background: "#7CF5A0", boxShadow: "0 0 0 3px rgba(124,245,160,0.3)" },
@@ -408,26 +458,26 @@ const S = {
   progressFill: { height: "100%", background: "#fff", borderRadius: 10, transition: "width 0.4s ease" },
   progressLabel: { fontSize: 11, color: "rgba(255,255,255,0.85)", textAlign: "right", marginTop: 5 },
   sharePill: { flex: 1, padding: "10px 8px", borderRadius: 12, border: "1.5px solid rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
-  addWrap: { position: "relative", padding: "14px 16px 0" },
-  addInput: { width: "100%", padding: "14px 16px", borderRadius: 14, border: "1.5px solid #E7E1F2", fontSize: 15, fontFamily: "'DM Sans',sans-serif", background: "#fff", outline: "none", color: V.text, boxShadow: "0 2px 10px rgba(90,58,166,0.06)" },
-  dropdown: { position: "absolute", left: 16, right: 16, top: "100%", marginTop: 6, background: "#fff", borderRadius: 14, boxShadow: "0 10px 30px rgba(36,28,51,0.15)", zIndex: 20, overflow: "hidden", maxHeight: 320, overflowY: "auto" },
+  addWrap: { position: "sticky", top: 0, zIndex: 30, padding: "12px 16px 4px", background: "rgba(246,244,251,0.96)", backdropFilter: "blur(8px)" },
+  addInput: { flex: 1, minWidth: 0, padding: "15px 4px", border: "none", outline: "none", fontSize: 16, fontFamily: "'DM Sans',sans-serif", background: "transparent", color: V.text },
+  dropdown: { position: "absolute", left: 16, right: 16, top: 66, background: "#fff", borderRadius: 18, boxShadow: "0 14px 40px rgba(36,28,51,0.22)", zIndex: 40, overflow: "hidden", maxHeight: "62vh", overflowY: "auto" },
   dropInfo: { padding: "12px 16px", fontSize: 13, color: V.muted },
-  dropAddText: { padding: "13px 16px", fontSize: 14, color: V.violet, fontWeight: 700, cursor: "pointer" },
-  dropRow: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", borderBottom: "1px solid #F3F0F9" },
-  body: { padding: "16px" },
-  catHead: { fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 12, color: V.violetDark, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
-  item: { display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 16, padding: "11px 12px", marginBottom: 8, boxShadow: "0 2px 8px rgba(36,28,51,0.05)" },
+  dropAddText: { padding: "14px 16px", fontSize: 14, color: V.violet, fontWeight: 700, cursor: "pointer", background: "#FAF8FE" },
+  dropRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", cursor: "pointer", borderBottom: "1px solid #F3F0F9" },
+  body: { padding: "12px 16px" },
+  catHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 13, color: V.violetDark, marginBottom: 10, padding: "0 4px" },
+  item: { background: "#fff", borderRadius: 18, padding: "12px 14px 10px", marginBottom: 10, boxShadow: "0 2px 10px rgba(36,28,51,0.06)" },
   itemMissing: { background: "#FFF7ED", boxShadow: "inset 0 0 0 1.5px #FED7AA" },
-  missBtn: { flexShrink: 0, background: "#FFF3E9", color: "#EA580C", border: "none", borderRadius: 9, padding: "6px 9px", fontSize: 13, fontWeight: 800, cursor: "pointer", lineHeight: 1 },
+  missBtn: { flexShrink: 0, background: "#FFF3E9", color: "#EA580C", border: "none", borderRadius: 11, padding: "9px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", lineHeight: 1 },
   missBtnOn: { background: "#EA580C", color: "#fff" },
   resetBtn: { display: "block", margin: "4px auto 0", background: "#fff", color: V.muted, border: "1.5px solid #E7E1F2", borderRadius: 12, padding: "11px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
-  check: { width: 26, height: 26, borderRadius: "50%", border: "2px solid #D8D1E6", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" },
-  qtyBox: { display: "flex", alignItems: "center", gap: 2, background: V.violetLight, borderRadius: 10, padding: "2px 4px", flexShrink: 0 },
-  qtyBtn: { width: 26, height: 26, borderRadius: 8, border: "none", background: "transparent", color: V.violetDark, fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1 },
-  qtyNum: { minWidth: 20, textAlign: "center", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 14, color: V.violetDark },
-  delBtn: { background: "transparent", border: "none", color: "#C9C2D6", fontSize: 15, cursor: "pointer", flexShrink: 0, padding: "4px 2px" },
+  check: { width: 30, height: 30, borderRadius: "50%", border: "2.5px solid #CFC6E3", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" },
+  qtyBox: { display: "flex", alignItems: "center", gap: 2, background: V.violetLight, borderRadius: 12, padding: 3 },
+  qtyBtn: { width: 34, height: 34, borderRadius: 10, border: "none", background: "#fff", color: V.violetDark, fontSize: 20, fontWeight: 700, cursor: "pointer", lineHeight: 1 },
+  qtyNum: { minWidth: 28, textAlign: "center", fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: V.violetDark },
+  delBtn: { background: "#F6F4FB", border: "none", borderRadius: 11, fontSize: 15, cursor: "pointer", flexShrink: 0, padding: "9px 12px", lineHeight: 1 },
   empty: { textAlign: "center", padding: "50px 20px", color: V.muted },
-  importLink: { background: "transparent", border: "none", color: V.violet, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline", padding: 6 },
+  importLink: { background: "transparent", border: "none", color: V.violet, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", padding: 6 },
   overlay: { position: "fixed", inset: 0, background: "rgba(36,28,51,0.5)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" },
   modal: { background: "#fff", borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto" },
   textarea: { width: "100%", minHeight: 170, padding: "14px", borderRadius: 14, border: "1.5px solid #E7E1F2", fontSize: 14, fontFamily: "'DM Sans',sans-serif", background: "#FAF9FE", outline: "none", color: V.text, resize: "vertical", lineHeight: 1.7 },
