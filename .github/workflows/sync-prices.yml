@@ -9,9 +9,16 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'stores | full | delta | translate'
+        description: 'stores | full | delta | translate | tr-export | tr-import'
         required: false
         default: 'delta'
+      count:
+        description: 'Produits par tr-export'
+        required: false
+        default: '300'
+
+permissions:
+  contents: write
 
 concurrency:
   group: sync-prices
@@ -43,6 +50,20 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: claude-haiku-4-5
         run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "tr-export" ]; then
+            node scripts/translations-export.mjs --count=${{ inputs.count }}
+            git config user.name "github-actions"
+            git config user.email "actions@users.noreply.github.com"
+            git add translations/todo.json
+            git commit -m "translations: lot à traduire" || echo "rien à committer"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+            exit 0
+          fi
+          if [ "${{ steps.mode.outputs.mode }}" = "tr-import" ]; then
+            node scripts/translations-import.mjs
+            exit 0
+          fi
           if [ "${{ steps.mode.outputs.mode }}" = "translate" ]; then
             node scripts/translate.mjs --llm
             exit 0
