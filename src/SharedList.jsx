@@ -388,6 +388,9 @@ export default function SharedList() {
             {settled > 0 && (
               <button className="sl-press" onClick={resetList} style={S.resetBtn}>🔄 Recommencer (tout décocher)</button>
             )}
+            {settled > 0 && (
+              <button className="sl-press" onClick={resetList} style={S.resetBtn}>🔄 Recommencer (tout décocher)</button>
+            )}
             <div style={{ height: 40 }} />
           </div>
 
